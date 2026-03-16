@@ -546,7 +546,7 @@
     },
     "black_scholes_call": {
       "formula": "C = S N(d1) - K e^{-r t} N(d2)",
-      "name_tr": "Black-Scholes çağrı opsiyon fiyatı
+      "name_tr": "Black-Scholes çağrı opsiyon fiyatı"
     },
 
     "merger_energy_release": {
