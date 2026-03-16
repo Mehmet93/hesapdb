@@ -560,10 +560,43 @@
     "M2": "İkinci kara deliğin kütlesi (kg)",
     "c": "Işık hızı (m/s)",
     "ΔE": "Açığa çıkan enerji (Joule)"
-  },
+  }
   "source": "General Relativity / Gravitational Wave Astrophysics"
+},
+
+"merger_efficiency_calculation": {
+  "definitions": {
+    "eta_fundamental": {
+      "formula": "η = E_rad / (M_tot * c²)",
+      "name_tr": "Temel verimlilik tanımı",
+      "description": "Işınlanan enerjinin toplam başlangıç kütle enerjisine oranı"
+    },
+    "symmetric_mass_ratio": {
+      "formula": "ν = (M1 * M2) / (M1 + M2)²",
+      "name_tr": "Simetrik kütle oranı",
+      "description": "Kütle hiyerarşisinin enerji yayılımına etkisini belirleyen boyutsuz katsayı"
+    }
+  },
+  "fitting_formula_schwarzschild": {
+    "formula": "η(ν) ≈ 0.2 * ν² - 0.09 * ν + 0.05",
+    "name_tr": "Schwarzschild verimlilik uyum formülü",
+    "description": "Dönmeyen kara delikler için sayısal görelilik simülasyonlarından elde edilen yaklaşık katsayı hesabı",
+    "limit_cases": {
+      "equal_mass": "M1 = M2 (ν = 0.25) için η ≈ 0.048 (~%5)",
+      "extreme_mass_ratio": "M1 >> M2 (ν → 0) için η → 0"
+    }
+  },
+  "variables": {
+    "η": "Verimlilik katsayısı (boyutsuz)",
+    "ν": "Simetrik kütle oranı (0 ≤ ν ≤ 0.25)",
+    "M_tot": "M1 + M2 (Toplam kütle)",
+    "E_rad": "Kütleçekimsel dalga enerjisi (J)"
+  },
+  "source": "Numerical Relativity / IMRPhenom Fitting Models"
 }
 
+
+    
     
   }
 }
