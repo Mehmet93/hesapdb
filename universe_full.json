@@ -429,9 +429,14 @@
       "formula": "Δ = r² - 2 M r + a² ; ρ² = r² + a² cos²θ",
       "name_tr": "Kerr metriği (dönen kara delik)"
     },
-    "hawking_temperature": {
-      "formula": "T_H = ħ c³ / (8 π G M k_B)",
-      "name_tr": "Hawking sıcaklığı"
+   "hawking_temperature": {
+  "formula": "T_H = ħ c³ / (8 π G M k_B)",
+  "name_tr": "Hawking sıcaklığı",
+  "description": "Schwarzschild kara deliğin Hawking sıcaklığı",
+  "note": "ÖNEMLİ: T_H ∝ 1/M → kütle arttıkça sıcaklık azalır. Kütle 10 kat artınca sıcaklık TAM 10 kat azalır! (M = 10 M☉ → T_H ≈ 6.17 × 10^{-9} K)",
+  "proportionality": "T_H ∝ 1/M",
+  "example_M10": "M = 10 M☉ için T_H = 6.169 × 10^{-9} K"
+      
     },
     "bekenstein_entropy": {
       "formula": "S = k_B c³ A / (4 ħ G)",
