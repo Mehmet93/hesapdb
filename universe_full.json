@@ -546,7 +546,24 @@
     },
     "black_scholes_call": {
       "formula": "C = S N(d1) - K e^{-r t} N(d2)",
-      "name_tr": "Black-Scholes çağrı opsiyon fiyatı"
-    }
+      "name_tr": "Black-Scholes çağrı opsiyon fiyatı
+    },
+
+    "merger_energy_release": {
+  "formula": "ΔE = (M1 + M2) * η * c²",
+  "name_tr": "Kara delik birleşme enerjisi",
+  "description": "İki kara deliğin birleşmesi (merger) sonucu kütleçekimsel dalga olarak yayılan toplam enerji",
+  "efficiency": 0.05,
+  "efficiency_note": "η (verimlilik) katsayısı; Schwarzschild birleşmeleri için kütlenin %5'inin enerjiye dönüştüğü varsayılır",
+  "variables": {
+    "M1": "Birinci kara deliğin kütlesi (kg)",
+    "M2": "İkinci kara deliğin kütlesi (kg)",
+    "c": "Işık hızı (m/s)",
+    "ΔE": "Açığa çıkan enerji (Joule)"
+  },
+  "source": "General Relativity / Gravitational Wave Astrophysics"
+}
+
+    
   }
 }
