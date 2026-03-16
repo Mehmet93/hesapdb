@@ -550,7 +550,7 @@
     },
 
     "merger_energy_release": {
-  "formula": "ΔE = (M1 + M2) * η * c²",
+  "formula": "ΔE = (M₁ + M₂) * η * c²",
   "name_tr": "kara delik çarpışma, schwarzschild",
   "description": "İki kara deliğin birleşmesi (merger) sonucu kütleçekimsel dalga olarak yayılan toplam enerji",
   "efficiency": 0.05,
