@@ -715,7 +715,7 @@
   },
 
 
-"c4_ballistics_and_human_trauma": {
+
     "c4_001_chemical_composition": {
       "formula": "RDX: C3H6N6O6 (91%) + Plasticizer: C10H18O4 (9.2%)",
       "name_tr": "C4 Kimyasal Kompozisyonu",
@@ -775,73 +775,122 @@
       "formula": "V_gas ≈ 900 L/kg",
       "name_tr": "Gaz Genleşme Oranı",
       "description": "1 kg C4'ün patlama anında dönüştüğü sıcak gaz hacmi."
+    },
+    "c4_ballistics_and_human_trauma_v2": {
+    "c4_001_detonation_velocity": {
+      "formula": "V_d ≈ 8040 m/s",
+      "name_tr": "C4 Detonasyon Hızı",
+      "description": "Şok dalgasının C4 patlayıcı kütlesi içindeki ilerleme hızı; RDX bazlı hız sabiti."
+    },
+    "c4_002_detonation_pressure": {
+      "formula": "P_det = ¼ ρ V_d²",
+      "name_tr": "Detonasyon Basıncı",
+      "description": "Patlayıcı yoğunluğu (ρ) ve detonasyon hızı (V_d) kullanılarak hesaplanan şok cephesi basıncı."
+    },
+    "c4_003_oxygen_balance_rdx": {
+      "formula": "OB% = -21.6%",
+      "name_tr": "RDX Oksijen Dengesi",
+      "description": "Eksik oksijen oranı; patlama sonrası yanmamış ürünlerin (CO, H2) atmosferik oksijenle ikincil yanma (afterburn) potansiyelini belirler."
+    },
+    "c4_004_friedlander_wave_decay": {
+      "formula": "P(t) = P_so (1 - t/t_d) e^(-b*t/t_d)",
+      "name_tr": "Friedlander Dalga Sönümü",
+      "description": "Zamana bağlı şok dalgası basınç profili; pozitif ve negatif faz ayrımı sağlar."
     }
   },
-
-
-
+  "general_blast_trauma_model": {
+    "btm_001_universal_scaling": {
+      "formula": "Z = R / (W_e)^(1/3)",
+      "name_tr": "Hopkinson-Cranz Ölçeklenmiş Mesafe",
+      "description": "Patlayıcı kütlesi (W_e) ve mesafe (R) arasındaki ilişkiyle hasar şiddeti tahmini."
+    },
+    "btm_002_peak_overpressure_nearfield": {
+      "formula": "P_so = (P_det / 4) * (r_s / R)³",
+      "name_tr": "Yakın Alan Aşırı Basınç",
+      "description": "Yakın mesafede (Z < 0.5) kübik mesafe kuralına göre basınç düşüşü."
+    },
+    "btm_003_anatomical_probit_injury": {
+      "formula": "P_i = 1 / (1 + exp(-(α + β ln(ΔP))))",
+      "name_tr": "Anatomik Hasar Olasılığı (Probit)",
+      "description": "Farklı organlar için eşik basınç değerlerine dayalı yaralanma olasılığı hesabı."
+    },
+    "btm_004_spalling_tissue_interface": {
+      "formula": "σ_t = ρ_tissue * c_tissue * u_particle",
+      "name_tr": "Doku İçi Spalling Gerilmesi",
+      "description": "Şok dalgasının hava-doku geçişinde oluşturduğu iç parçalanma (akciğer/bağırsak rüptürü)."
+    },
+    "btm_005_chemical_dose_inhalation": {
+      "formula": "D = ∫ [C_toxic] dt",
+      "name_tr": "İnhalasyon Toksisite Dozu",
+      "description": "Patlama sonrası ortaya çıkan CO ve azot oksitlerin solunum yoluyla alım miktarı."
+    }
+  },
   "ballistics_and_terminal_effects": {
-    "bal_001_kinetic_energy_projectile": {
+    "bal_001_kinetic_energy": {
       "formula": "K_e = ½ m v²",
       "name_tr": "Mermi Kinetik Enerjisi",
-      "description": "Merminin kütlesi (m) ve namlu çıkış hızı (v) ile belirlenen toplam vuruş enerjisi."
+      "description": "Merminin veya şarapnelin çarpma anındaki toplam iş yapma kapasitesi."
     },
     "bal_002_sectional_density": {
       "formula": "SD = m / d²",
       "name_tr": "Kesitsel Yoğunluk",
-      "description": "Merminin kütlesinin çapına oranı; delme (penetrasyon) yeteneğini belirleyen temel katsayı."
+      "description": "Mermi kütlesinin çapına oranı; penetrasyon derinliği üzerindeki ana etken."
     },
     "bal_003_ballistic_coefficient": {
-      "formula": "BC = m / (d² * i)",
+      "formula": "BC = m / (i d²)",
       "name_tr": "Balistik Katsayı",
-      "description": "Merminin hava direncini yenme kapasitesi; i: form faktörü."
+      "description": "Merminin uçuş sırasında hava direncine karşı koyma verimi."
     },
-    "bal_004_terminal_tissue_damage": {
-      "formula": "W_permanent = A_proj * L_p",
+    "bal_004_permanent_cavity_volume": {
+      "formula": "V_pc = A_proj * L_p",
       "name_tr": "Kalıcı Yara Kanalı Hacmi",
-      "description": "İnsan vücudunda merminin doğrudan parçaladığı doku hacmi; A: mermi kesit alanı, L: penetrasyon derinliği."
+      "description": "Merminin doku içinde fiziksel olarak yok ettiği/ezdiği hacim."
     },
     "bal_005_temporary_cavitation": {
-      "formula": "V_temp ∝ K_e * (η / E_tissue)",
+      "formula": "V_tc ∝ K_e * (η / E_tissue)",
       "name_tr": "Geçici Kavitasyon Şiddeti",
-      "description": "Yüksek hızlı mermilerin dokuda oluşturduğu ani genleşme ve şok dalgası hasarı."
+      "description": "Ani genleşme sonucu oluşan ve mermi temas etmese dahi dokuyu yırtan şok dalgası etkisi."
     },
     "bal_006_steel_penetration_de_marre": {
       "formula": "T = (m^0.5 * v) / (K_d * d^0.75)",
-      "name_tr": "De Marre Çelik Delme Formülü",
-      "description": "Merminin belirli bir kalınlıktaki (T) çelik zırhı delip geçme kapasitesi; Kd: materyal direnç sabiti."
+      "name_tr": "De Marre Çelik Delme",
+      "description": "Sert metallerde merminin delebileceği maksimum kalınlık hesabı."
     },
     "bal_007_aluminum_impact_depth": {
-      "formula": "P = k * (m/A) * v^0.8",
+      "formula": "P_al = k * (m/A) * v^0.8",
       "name_tr": "Alüminyum Penetrasyon Derinliği",
-      "description": "Düşük yoğunluklu metallerde (Alüminyum vb.) merminin ilerleme mesafesi."
+      "description": "Daha yumuşak metallerde hıza ve kütle/alan oranına bağlı delme derinliği."
     },
-    "bal_008_concrete_wall_spalling": {
-      "formula": "S = (1/f'_c) * (K_e / d³)",
-      "name_tr": "Beton Duvar Parçalanma (Spalling) Eşiği",
-      "description": "Betonun basınç dayanımı (f'c) karşısında merminin oluşturduğu arka yüzey kopma hasarı."
+    "bal_008_concrete_spalling_threshold": {
+      "formula": "S_c = (1 / f'_c) * (K_e / d³)",
+      "name_tr": "Beton Spalling Eşiği",
+      "description": "Betonun basınç direnci (f'c) karşısında arkadan parça koparma sınırı."
     },
     "bal_009_hydrostatic_shock": {
-      "formula": "P_hydro = ρ * c * v",
-      "name_tr": "Hidrostatik Şok Basıncı",
-      "description": "Vücut sıvılarında mermi etkisiyle oluşan ve uzak sinir sistemine iletilen basınç dalgası."
+      "formula": "P_h = ρ_liquid * c_liquid * v_proj",
+      "name_tr": "Hidrostatik Şok",
+      "description": "Vücut sıvılarında mermi hızıyla yayılan ve uzak organ hasarına yol açan basınç dalgası."
     },
-    "bal_010_drag_force_air": {
-      "formula": "F_d = ½ ρ v² C_d A",
-      "name_tr": "Hava Direnci Kuvveti",
-      "description": "Uçuş sırasında merminin hızını azaltan dış balistik kuvveti."
-    },
-    "bal_011_armor_piercing_core_energy": {
-      "formula": "E_core = E_total * (m_core / m_total)",
-      "name_tr": "Zırh Delici Çekirdek Enerjisi",
-      "description": "AP mermilerde sertleştirilmiş tungsten/çelik çekirdeğe aktarılan enerji oranı."
-    },
-    "bal_012_retardation_coefficient": {
-      "formula": "r = - (C_d * ρ * A) / (2m)",
+    "bal_010_drag_retardation": {
+      "formula": "r = - (C_d ρ_air A) / (2m)",
       "name_tr": "Yavaşlama Katsayısı",
-      "description": "Merminin mesafeye bağlı hız kaybı oranı."
+      "description": "Merminin dış balistik aşamasında mesafeye bağlı hız kaybı oranı."
+    },
+    "bal_011_armor_piercing_transfer": {
+      "formula": "E_ap = E_total * (m_core / m_total)",
+      "name_tr": "Zırh Delici Çekirdek Enerjisi",
+      "description": "AP mermilerde sert çekirdeğe aktarılan enerjinin korunumu."
     }
   },
+
+
+
+
+
+
+
+
+
   "extra_equations_pack_200": {
     "eq001_euler_identity": {"formula":"e^{iπ}+1=0","name_tr":"Euler özdeşliği"},
     "eq002_euler_formula": {"formula":"e^{ix}=cos(x)+i sin(x)","name_tr":"Euler formülü"},
