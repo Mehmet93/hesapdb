@@ -23,7 +23,13 @@
       "name": "Gravitational constant",
       "name_tr": "Kütleçekim sabiti",
       "source": "CODATA 2022"
-    },
+            },
+  "M_sun": {
+  "value": 1.98847e30,
+  "unit": "kg",
+  "name_tr": "Güneş Kütlesi",
+  "source": "IAU 2015"
+              },
     "h": {
       "value": 6.62607015e-34,
       "unit": "J s",
@@ -576,7 +582,7 @@
         }
       },
       "fitting_formula_schwarzschild": {
-        "formula": "η(ν) ≈ 0.2 * ν² - 0.09 * ν + 0.05",
+        "formula": "η(ν) ≈ 0.8 * ν²",
         "name_tr": "Schwarzschild verimlilik uyum formülü",
         "description": "Dönmeyen kara delikler için sayısal görelilik simülasyonlarından elde edilen yaklaşık katsayı hesabı",
         "limit_cases": {
