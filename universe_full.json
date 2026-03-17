@@ -436,14 +436,17 @@
       "name_tr": "Kerr metriği (dönen kara delik)"
     },
    "hawking_temperature": {
-  "formula": "T_H = ħ c³ / (8 π G M k_B)",
-  "name_tr": "Hawking sıcaklığı",
-  "description": "Schwarzschild kara deliğin Hawking sıcaklığı",
-  "note": "ÖNEMLİ: T_H ∝ 1/M → kütle arttıkça sıcaklık azalır. Kütle 10 kat artınca sıcaklık TAM 10 kat azalır! (M = 10 M☉ → T_H ≈ 6.17 × 10^{-9} K)",
-  "proportionality": "T_H ∝ 1/M",
-  "example_M10": "M = 10 M☉ için T_H = 6.169 × 10^{-9} K"
-      
-    },
+    "formula": "T_H = (hbar * c^3) / (8 * pi * G * M * k_B)",
+    "name_tr": "Hawking sıcaklığı",
+    "description": "Schwarzschild kara deliğin Hawking sıcaklığı",
+    "note": "ÖNEMLİ: T_H ∝ 1/M → Kütle arttıkça sıcaklık azalır. Birleşme sonrası toplam kütle (240 M☉) arttığı için sistemin Hawking sıcaklığı başlangıçtaki her iki kara delikten de daha düşük bir seviyeye geriler.",
+    "proportionality": "T_H ∝ 1/M",
+    "values": {
+      "M_10_sun": "6.17e-09 K",
+      "M_230_sun": "2.68e-10 K",
+      "M_final_240_sun": "2.57e-10 K"
+    }
+  },
     "bekenstein_entropy": {
       "formula": "S = k_B c³ A / (4 ħ G)",
       "name_tr": "Bekenstein-Hawking entropisi",
