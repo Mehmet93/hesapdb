@@ -880,10 +880,44 @@
       "formula": "E_ap = E_total * (m_core / m_total)",
       "name_tr": "Zırh Delici Çekirdek Enerjisi",
       "description": "AP mermilerde sert çekirdeğe aktarılan enerjinin korunumu."
+    },
+
+  "example_military_ballistics": {
+    "weapon_system": "Beretta M9 / SIG Sauer M17",
+    "projectile_data": {
+      "mass_m": "0.0075 kg (115 grain)",
+      "muzzle_velocity_v": "360 m/s",
+      "diameter_d": "0.009 m (9mm)",
+      "drag_coefficient_Cd": "0.295"
+    },
+    "calculated_terminal_values": {
+      "bal_001_kinetic_energy": {
+        "formula": "K_e = ½ * 0.0075 * 360²",
+        "result": "486 Joule",
+        "analysis": "İnsan yumuşak dokusunda geçici kavitasyon oluşturmak için yeterli, ancak ağır zırhlar için düşüktür."
+      },
+      "bal_002_sectional_density": {
+        "formula": "SD = 0.0075 / 0.009²",
+        "result": "92.59 kg/m²",
+        "analysis": "Orta derece penetrasyon kabiliyeti sağlar."
+      },
+      "bal_006_steel_penetration": {
+        "formula": "De Marre Equation Applied",
+        "target": "Yumuşak Çelik (Mild Steel)",
+        "result": "≈ 2.5 - 3.0 mm",
+        "note": "Askeri çelik yeleklerdeki (Level III+) plakaları delemez."
+      },
+      "bal_009_hydrostatic_shock": {
+        "formula": "P_h = 1000 * 1500 * 360",
+        "result": "540 MPa (Teorik Maksimum Basınç Dalgası)",
+        "analysis": "Doku içindeki sıvıların ani basınç artışıyla uzak sinirsel hasar (stunning effect) yaratma potansiyeli."
+      }
     }
+  }
+    
   },
 
-
+  
 
 
 
