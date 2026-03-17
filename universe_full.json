@@ -1181,6 +1181,94 @@
           "diameter": {"value": 12.6, "unit": "km"}
         }
       ]
-    }
+    },
+    "asteroids": [
+      {
+        "name": "Ceres",
+        "name_tr": "Ceres",
+        "category": "dwarf_planet",
+        "mass": {"value": 9.38e20, "unit": "kg"},
+        "diameter": {"value": 939.4, "unit": "km"},
+        "density": {"value": 2160, "unit": "kg/m³"},
+        "orbital_period": {"value": 1680, "unit": "days"}
+      },
+      {
+        "name": "Vesta",
+        "name_tr": "Vesta",
+        "category": "asteroid",
+        "mass": {"value": 2.59e20, "unit": "kg"},
+        "diameter": {"value": 525, "unit": "km"},
+        "density": {"value": 3456, "unit": "kg/m³"},
+        "orbital_period": {"value": 1325, "unit": "days"}
+      },
+      {
+        "name": "Pallas",
+        "name_tr": "Pallas",
+        "category": "asteroid",
+        "mass": {"value": 2.11e20, "unit": "kg"},
+        "diameter": {"value": 512, "unit": "km"},
+        "density": {"value": 2800, "unit": "kg/m³"},
+        "orbital_period": {"value": 1686, "unit": "days"}
+      },
+      {
+        "name": "Hygiea",
+        "name_tr": "Hygiea",
+        "category": "asteroid",
+        "mass": {"value": 8.32e19, "unit": "kg"},
+        "diameter": {"value": 434, "unit": "km"},
+        "density": {"value": 1940, "unit": "kg/m³"},
+        "orbital_period": {"value": 2030, "unit": "days"}
+      }
+    ],
+    "meteor_showers": [
+      {
+        "name": "Quadrantids",
+        "name_tr": "Quadrantidler",
+        "active": "December 26 - January 16",
+        "peak": "January 3-4"
+      },
+      {
+        "name": "Lyrids",
+        "name_tr": "Liridler",
+        "active": "April 16-25",
+        "peak": "April 22-23"
+      },
+      {
+        "name": "Eta Aquariids",
+        "name_tr": "Eta Kova",
+        "active": "April 19 - May 28",
+        "peak": "May 6-7"
+      },
+      {
+        "name": "Perseids",
+        "name_tr": "Perseid ",
+        "active": "July 17 - August 24",
+        "peak": "August 12-13"
+      },
+      {
+        "name": "Orionids",
+        "name_tr": "Orionidler",
+        "active": "October 2 - November 7",
+        "peak": "October 21-22"
+      },
+      {
+        "name": "Leonids",
+        "name_tr": "Leonidler",
+        "active": "November 6-30",
+        "peak": "November 17-18"
+      },
+      {
+        "name": "Geminids",
+        "name_tr": "İkizler",
+        "active": "December 4-17",
+        "peak": "December 14-15"
+      },
+      {
+        "name": "Ursids",
+        "name_tr": "Ursidler",
+        "active": "December 17-26",
+        "peak": "December 22-23"
+      }
+    ]
   }
 }
