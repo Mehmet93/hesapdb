@@ -1026,5 +1026,161 @@
     "eq098_compton_shift": {"formula":"Δλ = h/(m_ec)(1-cosθ)","name_tr":"Compton kayması"},
     "eq099_radiation_flux": {"formula":"F = L/(4πr²)","name_tr":"Işınım akısı"},
     "eq100_virial_theorem": {"formula":"2K + U = 0","name_tr":"Virial teoremi"}
+  },
+  "celestial_bodies": {
+    "planets": [
+      {
+        "name": "Mercury",
+        "name_tr": "Merkür",
+        "category": "planet",
+        "mass": {"value": 0.330e24, "unit": "kg"},
+        "diameter": {"value": 4879, "unit": "km"},
+        "density": {"value": 5427, "unit": "kg/m³"},
+        "gravity": {"value": 3.7, "unit": "m/s²"},
+        "escape_velocity": {"value": 4.3, "unit": "km/s"},
+        "rotation_period": {"value": 58.6, "unit": "days"},
+        "orbital_period": {"value": 88.0, "unit": "days"},
+        "distance_from_sun": {"value": 57.9e6, "unit": "km"},
+        "moons": []
+      },
+      {
+        "name": "Venus",
+        "name_tr": "Venüs",
+        "category": "planet",
+        "mass": {"value": 4.87e24, "unit": "kg"},
+        "diameter": {"value": 12104, "unit": "km"},
+        "density": {"value": 5243, "unit": "kg/m³"},
+        "gravity": {"value": 8.9, "unit": "m/s²"},
+        "escape_velocity": {"value": 10.4, "unit": "km/s"},
+        "rotation_period": {"value": -243.0, "unit": "days"},
+        "orbital_period": {"value": 224.7, "unit": "days"},
+        "distance_from_sun": {"value": 108.2e6, "unit": "km"},
+        "moons": []
+      },
+      {
+        "name": "Earth",
+        "name_tr": "Dünya",
+        "category": "planet",
+        "mass": {"value": 5.97e24, "unit": "kg"},
+        "diameter": {"value": 12756, "unit": "km"},
+        "density": {"value": 5514, "unit": "kg/m³"},
+        "gravity": {"value": 9.8, "unit": "m/s²"},
+        "escape_velocity": {"value": 11.2, "unit": "km/s"},
+        "rotation_period": {"value": 1.0, "unit": "days"},
+        "orbital_period": {"value": 365.2, "unit": "days"},
+        "distance_from_sun": {"value": 149.6e6, "unit": "km"},
+        "moons": ["Moon"]
+      },
+      {
+        "name": "Mars",
+        "name_tr": "Mars",
+        "category": "planet",
+        "mass": {"value": 0.642e24, "unit": "kg"},
+        "diameter": {"value": 6792, "unit": "km"},
+        "density": {"value": 3933, "unit": "kg/m³"},
+        "gravity": {"value": 3.7, "unit": "m/s²"},
+        "escape_velocity": {"value": 5.0, "unit": "km/s"},
+        "rotation_period": {"value": 1.03, "unit": "days"},
+        "orbital_period": {"value": 687.0, "unit": "days"},
+        "distance_from_sun": {"value": 227.9e6, "unit": "km"},
+        "moons": ["Phobos", "Deimos"]
+      },
+      {
+        "name": "Jupiter",
+        "name_tr": "Jüpiter",
+        "category": "planet",
+        "mass": {"value": 1898e24, "unit": "kg"},
+        "diameter": {"value": 142984, "unit": "km"},
+        "density": {"value": 1326, "unit": "kg/m³"},
+        "gravity": {"value": 23.1, "unit": "m/s²"},
+        "escape_velocity": {"value": 59.5, "unit": "km/s"},
+        "rotation_period": {"value": 0.41, "unit": "days"},
+        "orbital_period": {"value": 4331, "unit": "days"},
+        "distance_from_sun": {"value": 778.6e6, "unit": "km"},
+        "moons": ["Io", "Europa", "Ganymede", "Callisto"]
+      },
+      {
+        "name": "Saturn",
+        "name_tr": "Satürn",
+        "category": "planet",
+        "mass": {"value": 568e24, "unit": "kg"},
+        "diameter": {"value": 120536, "unit": "km"},
+        "density": {"value": 687, "unit": "kg/m³"},
+        "gravity": {"value": 9.0, "unit": "m/s²"},
+        "escape_velocity": {"value": 35.5, "unit": "km/s"},
+        "rotation_period": {"value": 0.45, "unit": "days"},
+        "orbital_period": {"value": 10747, "unit": "days"},
+        "distance_from_sun": {"value": 1433.5e6, "unit": "km"},
+        "moons": ["Mimas", "Enceladus", "Tethys", "Dione", "Rhea", "Titan", "Iapetus"]
+      },
+      {
+        "name": "Uranus",
+        "name_tr": "Uranüs",
+        "category": "planet",
+        "mass": {"value": 86.8e24, "unit": "kg"},
+        "diameter": {"value": 51118, "unit": "km"},
+        "density": {"value": 1271, "unit": "kg/m³"},
+        "gravity": {"value": 8.7, "unit": "m/s²"},
+        "escape_velocity": {"value": 21.3, "unit": "km/s"},
+        "rotation_period": {"value": -0.72, "unit": "days"},
+        "orbital_period": {"value": 30589, "unit": "days"},
+        "distance_from_sun": {"value": 2872.5e6, "unit": "km"},
+        "moons": ["Ariel", "Umbriel", "Titania", "Oberon", "Miranda"]
+      },
+      {
+        "name": "Neptune",
+        "name_tr": "Neptün",
+        "category": "planet",
+        "mass": {"value": 102e24, "unit": "kg"},
+        "diameter": {"value": 49528, "unit": "km"},
+        "density": {"value": 1638, "unit": "kg/m³"},
+        "gravity": {"value": 11.0, "unit": "m/s²"},
+        "escape_velocity": {"value": 23.5, "unit": "km/s"},
+        "rotation_period": {"value": 0.67, "unit": "days"},
+        "orbital_period": {"value": 59800, "unit": "days"},
+        "distance_from_sun": {"value": 4495.1e6, "unit": "km"},
+        "moons": ["Triton", "Nereid", "Proteus"]
+      }
+    ],
+    "dwarf_planets": [
+      {
+        "name": "Pluto",
+        "name_tr": "Plüton",
+        "category": "dwarf_planet",
+        "mass": {"value": 0.0130e24, "unit": "kg"},
+        "diameter": {"value": 2370, "unit": "km"},
+        "density": {"value": 2095, "unit": "kg/m³"},
+        "gravity": {"value": 0.7, "unit": "m/s²"},
+        "escape_velocity": {"value": 1.3, "unit": "km/s"},
+        "rotation_period": {"value": -6.39, "unit": "days"},
+        "orbital_period": {"value": 90560, "unit": "days"},
+        "distance_from_sun": {"value": 5906.4e6, "unit": "km"},
+        "moons": ["Charon", "Styx", "Nix", "Kerberos", "Hydra"]
+      }
+    ],
+    "moons": {
+      "Earth": [
+        {
+          "name": "Moon",
+          "name_tr": "Ay",
+          "mass": {"value": 0.073e24, "unit": "kg"},
+          "diameter": {"value": 3475, "unit": "km"}
+        }
+      ],
+      "Mars": [
+        {
+          "name": "Phobos",
+          "name_tr": "Fobos",
+          "mass": {"value": 10.6e15, "unit": "kg"},
+          "diameter": {"value": 22.2, "unit": "km"}
+        },
+        {
+          "name": "Deimos",
+          "name_tr": "Deimos",
+          "mass": {"value": 2.4e15, "unit": "kg"},
+          "diameter": {"value": 12.6, "unit": "km"}
+        }
+      ]
+    }
   }
 }
