@@ -548,55 +548,151 @@
       "formula": "C = S N(d1) - K e^{-r t} N(d2)",
       "name_tr": "Black-Scholes çağrı opsiyon fiyatı"
     },
-
     "merger_energy_release": {
-  "formula": "ΔE = (M₁ + M₂) * η * c²",
-  "name_tr": "kara delik çarpışma, schwarzschild",
-  "description": "İki kara deliğin birleşmesi (merger) sonucu kütleçekimsel dalga olarak yayılan toplam enerji",
-  "efficiency": 0.05,
-  "efficiency_note": "η (verimlilik) katsayısı; Schwarzschild birleşmeleri için kütlenin %5'inin enerjiye dönüştüğü varsayılır",
-  "variables": {
-    "M1": "Birinci kara deliğin kütlesi (kg)",
-    "M2": "İkinci kara deliğin kütlesi (kg)",
-    "c": "Işık hızı (m/s)",
-    "ΔE": "Açığa çıkan enerji (Joule)"
-  },
-  "source": "General Relativity / Gravitational Wave Astrophysics"
-},
-
-"merger_efficiency_calculation": {
-  "definitions": {
-    "eta_fundamental": {
-      "formula": "η = E_rad / (M_tot * c²)",
-      "name_tr": "Temel verimlilik tanımı",
-      "description": "Işınlanan enerjinin toplam başlangıç kütle enerjisine oranı"
+      "formula": "ΔE = (M₁ + M₂) * η * c²",
+      "name_tr": "kara delik çarpışma, schwarzschild",
+      "description": "İki kara deliğin birleşmesi (merger) sonucu kütleçekimsel dalga olarak yayılan toplam enerji",
+      "efficiency": 0.05,
+      "efficiency_note": "η (verimlilik) katsayısı; Schwarzschild birleşmeleri için kütlenin %5'inin enerjiye dönüştüğü varsayılır",
+      "variables": {
+        "M1": "Birinci kara deliğin kütlesi (kg)",
+        "M2": "İkinci kara deliğin kütlesi (kg)",
+        "c": "Işık hızı (m/s)",
+        "ΔE": "Açığa çıkan enerji (Joule)"
+      },
+      "source": "General Relativity / Gravitational Wave Astrophysics"
     },
-    "symmetric_mass_ratio": {
-      "formula": "ν = (M1 * M2) / (M1 + M2)²",
-      "name_tr": "Simetrik kütle oranı",
-      "description": "Kütle hiyerarşisinin enerji yayılımına etkisini belirleyen boyutsuz katsayı"
+    "merger_efficiency_calculation": {
+      "definitions": {
+        "eta_fundamental": {
+          "formula": "η = E_rad / (M_tot * c²)",
+          "name_tr": "Temel verimlilik tanımı",
+          "description": "Işınlanan enerjinin toplam başlangıç kütle enerjisine oranı"
+        },
+        "symmetric_mass_ratio": {
+          "formula": "ν = (M1 * M2) / (M1 + M2)²",
+          "name_tr": "Simetrik kütle oranı",
+          "description": "Kütle hiyerarşisinin enerji yayılımına etkisini belirleyen boyutsuz katsayı"
+        }
+      },
+      "fitting_formula_schwarzschild": {
+        "formula": "η(ν) ≈ 0.2 * ν² - 0.09 * ν + 0.05",
+        "name_tr": "Schwarzschild verimlilik uyum formülü",
+        "description": "Dönmeyen kara delikler için sayısal görelilik simülasyonlarından elde edilen yaklaşık katsayı hesabı",
+        "limit_cases": {
+          "equal_mass": "M1 = M2 (ν = 0.25) için η ≈ 0.048 (~%5)",
+          "extreme_mass_ratio": "M1 >> M2 (ν → 0) için η → 0"
+        }
+      },
+      "variables": {
+        "η": "Verimlilik katsayısı (boyutsuz)",
+        "ν": "Simetrik kütle oranı (0 ≤ ν ≤ 0.25)",
+        "M_tot": "M1 + M2 (Toplam kütle)",
+        "E_rad": "Kütleçekimsel dalga enerjisi (J)"
+      },
+      "source": "Numerical Relativity / IMRPhenom Fitting Models"
     }
   },
-  "fitting_formula_schwarzschild": {
-    "formula": "η(ν) ≈ 0.2 * ν² - 0.09 * ν + 0.05",
-    "name_tr": "Schwarzschild verimlilik uyum formülü",
-    "description": "Dönmeyen kara delikler için sayısal görelilik simülasyonlarından elde edilen yaklaşık katsayı hesabı",
-    "limit_cases": {
-      "equal_mass": "M1 = M2 (ν = 0.25) için η ≈ 0.048 (~%5)",
-      "extreme_mass_ratio": "M1 >> M2 (ν → 0) için η → 0"
-    }
-  },
-  "variables": {
-    "η": "Verimlilik katsayısı (boyutsuz)",
-    "ν": "Simetrik kütle oranı (0 ≤ ν ≤ 0.25)",
-    "M_tot": "M1 + M2 (Toplam kütle)",
-    "E_rad": "Kütleçekimsel dalga enerjisi (J)"
-  },
-  "source": "Numerical Relativity / IMRPhenom Fitting Models"
-}
-
-
-    
-    
+  "extra_equations_pack_200": {
+    "eq001_euler_identity": {"formula":"e^{iπ}+1=0","name_tr":"Euler özdeşliği"},
+    "eq002_euler_formula": {"formula":"e^{ix}=cos(x)+i sin(x)","name_tr":"Euler formülü"},
+    "eq003_binomial_theorem": {"formula":"(x+y)^n = Σ C(n,k)x^{n-k}y^k","name_tr":"Binom teoremi"},
+    "eq004_taylor_series": {"formula":"f(x)=Σ f^(n)(a)(x-a)^n/n!","name_tr":"Taylor serisi"},
+    "eq005_fourier_series": {"formula":"f(x)=a0/2+Σ(an cos(nx)+bn sin(nx))","name_tr":"Fourier serisi"},
+    "eq006_gaussian_integral": {"formula":"∫ e^{-x^2}dx = √π","name_tr":"Gaussian integral"},
+    "eq007_cauchy_schwarz": {"formula":"|⟨x,y⟩| ≤ ||x|| ||y||","name_tr":"Cauchy-Schwarz eşitsizliği"},
+    "eq008_stokes_theorem": {"formula":"∮ F·dr = ∬ (∇×F)·dS","name_tr":"Stokes teoremi"},
+    "eq009_gauss_divergence": {"formula":"∭ (∇·F)dV = ∬ F·dS","name_tr":"Gauss diverjans teoremi"},
+    "eq010_green_theorem": {"formula":"∮(Ldx+Mdy)=∬(∂M/∂x-∂L/∂y)dA","name_tr":"Green teoremi"},
+    "eq011_planck_law": {"formula":"B(ν,T)=(2hν^3/c^2)/(e^{hν/kT}-1)","name_tr":"Planck ışıma yasası"},
+    "eq012_wien_law": {"formula":"λ_max T = b","name_tr":"Wien kayma yasası"},
+    "eq013_debroglie": {"formula":"λ = h/p","name_tr":"de Broglie dalga boyu"},
+    "eq014_bohr_energy": {"formula":"E_n = -13.6 eV / n^2","name_tr":"Bohr enerji seviyeleri"},
+    "eq015_bohr_radius_formula": {"formula":"a0 = 4π ε0 ħ² / (m_e e²)","name_tr":"Bohr yarıçapı formülü"},
+    "eq016_radiation_pressure": {"formula":"P = u/3","name_tr":"Işınım basıncı"},
+    "eq017_blackbody_energy_density": {"formula":"u = aT^4","name_tr":"Kara cisim enerji yoğunluğu"},
+    "eq018_electric_potential": {"formula":"V = kq/r","name_tr":"Elektrik potansiyeli"},
+    "eq019_capacitance": {"formula":"C = Q/V","name_tr":"Kapasitans"},
+    "eq020_parallel_capacitors": {"formula":"C_eq = Σ C_i","name_tr":"Paralel kapasitörler"},
+    "eq021_series_capacitors": {"formula":"1/C_eq = Σ 1/C_i","name_tr":"Seri kapasitörler"},
+    "eq022_ohm_law": {"formula":"V = IR","name_tr":"Ohm yasası"},
+    "eq023_resistor_power": {"formula":"P = I^2 R","name_tr":"Direnç gücü"},
+    "eq024_inductor_voltage": {"formula":"V = L dI/dt","name_tr":"Endüktör voltajı"},
+    "eq025_capacitor_current": {"formula":"I = C dV/dt","name_tr":"Kapasitör akımı"},
+    "eq026_rl_time_constant": {"formula":"τ = L/R","name_tr":"RL zaman sabiti"},
+    "eq027_rc_time_constant": {"formula":"τ = RC","name_tr":"RC zaman sabiti"},
+    "eq028_lc_frequency": {"formula":"ω = 1/√(LC)","name_tr":"LC rezonans frekansı"},
+    "eq029_poynting_vector": {"formula":"S = (1/μ0)(E×B)","name_tr":"Poynting vektörü"},
+    "eq030_em_wave_speed": {"formula":"c = 1/√(μ0 ε0)","name_tr":"EM dalga hızı"},
+    "eq031_relativistic_gamma": {"formula":"γ = 1/√(1-v²/c²)","name_tr":"Lorentz faktörü"},
+    "eq032_relativistic_energy": {"formula":"E = γmc²","name_tr":"Relativistik enerji"},
+    "eq033_relativistic_momentum": {"formula":"p = γmv","name_tr":"Relativistik momentum"},
+    "eq034_time_dilation": {"formula":"Δt = γ Δt0","name_tr":"Zaman genişlemesi"},
+    "eq035_length_contraction": {"formula":"L = L0/γ","name_tr":"Uzunluk kısalması"},
+    "eq036_doppler_relativistic": {"formula":"f' = f√((1+β)/(1-β))","name_tr":"Relativistik Doppler"},
+    "eq037_gravitational_redshift": {"formula":"z = Δλ/λ","name_tr":"Kütleçekimsel kırmızıya kayma"},
+    "eq038_escape_velocity": {"formula":"v_e = √(2GM/R)","name_tr":"Kaçış hızı"},
+    "eq039_orbital_velocity": {"formula":"v = √(GM/r)","name_tr":"Yörünge hızı"},
+    "eq040_tidal_force": {"formula":"F_t ∝ GMd/r³","name_tr":"Gelgit kuvveti"},
+    "eq041_entropy_change": {"formula":"dS = δQ/T","name_tr":"Entropi değişimi"},
+    "eq042_carnot_efficiency": {"formula":"η = 1 - Tc/Th","name_tr":"Carnot verimi"},
+    "eq043_gibbs_free_energy": {"formula":"G = H - TS","name_tr":"Gibbs enerjisi"},
+    "eq044_helmholtz_energy": {"formula":"F = U - TS","name_tr":"Helmholtz enerjisi"},
+    "eq045_chemical_potential": {"formula":"μ = (∂G/∂N)_T,P","name_tr":"Kimyasal potansiyel"},
+    "eq046_entropy_statistical": {"formula":"S = k ln Ω","name_tr":"Boltzmann entropisi"},
+    "eq047_mean_free_path": {"formula":"λ = 1/(√2 n σ)","name_tr":"Ortalama serbest yol"},
+    "eq048_ideal_gas_energy": {"formula":"U = (3/2)nRT","name_tr":"İdeal gaz iç enerji"},
+    "eq049_speed_rms": {"formula":"v_rms = √(3kT/m)","name_tr":"RMS hız"},
+    "eq050_pressure_kinetic": {"formula":"P = (1/3)ρ v_rms²","name_tr":"Kinetik basınç"},
+    "eq051_diffusion_flux": {"formula":"J = -D ∇C","name_tr":"Fick 1. yasa"},
+    "eq052_fick_second": {"formula":"∂C/∂t = D∇²C","name_tr":"Fick 2. yasa"},
+    "eq053_advection_diffusion": {"formula":"∂u/∂t + v·∇u = D∇²u","name_tr":"Adveksiyon-difüzyon"},
+    "eq054_kolmogorov_energy": {"formula":"E(k) ∝ k^{-5/3}","name_tr":"Kolmogorov spektrumu"},
+    "eq055_reynolds_number": {"formula":"Re = ρvL/μ","name_tr":"Reynolds sayısı"},
+    "eq056_mach_number": {"formula":"M = v/c_s","name_tr":"Mach sayısı"},
+    "eq057_prandtl_number": {"formula":"Pr = ν/α","name_tr":"Prandtl sayısı"},
+    "eq058_nusselt_number": {"formula":"Nu = hL/k","name_tr":"Nusselt sayısı"},
+    "eq059_schmidt_number": {"formula":"Sc = ν/D","name_tr":"Schmidt sayısı"},
+    "eq060_grashof_number": {"formula":"Gr = gβΔTL³/ν²","name_tr":"Grashof sayısı"},
+    "eq061_logarithm_rule": {"formula":"log(ab)=log a + log b","name_tr":"Log çarpım kuralı"},
+    "eq062_log_division": {"formula":"log(a/b)=log a - log b","name_tr":"Log bölme kuralı"},
+    "eq063_log_power": {"formula":"log(a^b)=b log a","name_tr":"Log üs kuralı"},
+    "eq064_exponential_growth": {"formula":"N=N0 e^{rt}","name_tr":"Üstel büyüme"},
+    "eq065_half_life": {"formula":"t½ = ln2 / λ","name_tr":"Yarı ömür"},
+    "eq066_radioactive_decay": {"formula":"N=N0 e^{-λt}","name_tr":"Radyoaktif bozunma"},
+    "eq067_logistic_solution": {"formula":"N(t)=K/(1+Ae^{-rt})","name_tr":"Lojistik çözüm"},
+    "eq068_population_equilibrium": {"formula":"N*=K","name_tr":"Lojistik denge"},
+    "eq069_basic_reproduction": {"formula":"R0 = β/γ","name_tr":"Epidemi R0"},
+    "eq070_sir_model": {"formula":"dI/dt = βSI - γI","name_tr":"SIR epidemik model"},
+    "eq071_lorentz_force": {"formula":"F = q(E + v×B)","name_tr":"Lorentz kuvveti"},
+    "eq072_cyclotron_frequency": {"formula":"ω = qB/m","name_tr":"Siklotron frekansı"},
+    "eq073_larmor_radius": {"formula":"r = mv/(qB)","name_tr":"Larmor yarıçapı"},
+    "eq074_magnetic_energy": {"formula":"U = (1/2)LI²","name_tr":"Manyetik enerji"},
+    "eq075_capacitor_energy": {"formula":"U = (1/2)CV²","name_tr":"Kapasitör enerji"},
+    "eq076_energy_density_E": {"formula":"u = ε0 E²/2","name_tr":"Elektrik enerji yoğunluğu"},
+    "eq077_energy_density_B": {"formula":"u = B²/(2μ0)","name_tr":"Manyetik enerji yoğunluğu"},
+    "eq078_em_wave_energy": {"formula":"u = ε0 E²","name_tr":"EM dalga enerji"},
+    "eq079_radiation_force": {"formula":"F = P/c","name_tr":"Işınım kuvveti"},
+    "eq080_photon_energy": {"formula":"E = hν","name_tr":"Foton enerjisi"},
+    "eq081_wave_speed_string": {"formula":"v = √(T/μ)","name_tr":"Tel dalga hızı"},
+    "eq082_sound_speed": {"formula":"c = √(γP/ρ)","name_tr":"Ses hızı"},
+    "eq083_shm_period": {"formula":"T = 2π√(m/k)","name_tr":"SHM periyodu"},
+    "eq084_pendulum_period": {"formula":"T = 2π√(L/g)","name_tr":"Sarkaç periyodu"},
+    "eq085_damped_frequency": {"formula":"ω' = √(ω0² - (b/2m)²)","name_tr":"Sönümlü frekans"},
+    "eq086_resonance_peak": {"formula":"ω_r ≈ √(ω0² - (b²/2m²))","name_tr":"Rezonans frekansı"},
+    "eq087_quality_factor": {"formula":"Q = ω0 m / b","name_tr":"Q faktörü"},
+    "eq088_wave_intensity": {"formula":"I = P/A","name_tr":"Dalga şiddeti"},
+    "eq089_wave_power": {"formula":"P = ½ ρ A² ω² v","name_tr":"Dalga gücü"},
+    "eq090_group_velocity": {"formula":"v_g = dω/dk","name_tr":"Grup hızı"},
+    "eq091_phase_velocity": {"formula":"v_p = ω/k","name_tr":"Faz hızı"},
+    "eq092_snell_law": {"formula":"n1 sinθ1 = n2 sinθ2","name_tr":"Snell yasası"},
+    "eq093_refraction_index": {"formula":"n = c/v","name_tr":"Kırılma indisi"},
+    "eq094_lens_formula": {"formula":"1/f = 1/d_o + 1/d_i","name_tr":"Mercek formülü"},
+    "eq095_magnification": {"formula":"M = -d_i/d_o","name_tr":"Büyütme"},
+    "eq096_diffraction_limit": {"formula":"θ ≈ 1.22 λ/D","name_tr":"Kırınım limiti"},
+    "eq097_bragg_law": {"formula":"nλ = 2d sinθ","name_tr":"Bragg yasası"},
+    "eq098_compton_shift": {"formula":"Δλ = h/(m_ec)(1-cosθ)","name_tr":"Compton kayması"},
+    "eq099_radiation_flux": {"formula":"F = L/(4πr²)","name_tr":"Işınım akısı"},
+    "eq100_virial_theorem": {"formula":"2K + U = 0","name_tr":"Virial teoremi"}
   }
 }
