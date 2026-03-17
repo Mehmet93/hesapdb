@@ -780,6 +780,70 @@
 
 
 
+  "ballistics_and_terminal_effects": {
+    "bal_001_kinetic_energy_projectile": {
+      "formula": "K_e = ½ m v²",
+      "name_tr": "Mermi Kinetik Enerjisi",
+      "description": "Merminin kütlesi (m) ve namlu çıkış hızı (v) ile belirlenen toplam vuruş enerjisi."
+    },
+    "bal_002_sectional_density": {
+      "formula": "SD = m / d²",
+      "name_tr": "Kesitsel Yoğunluk",
+      "description": "Merminin kütlesinin çapına oranı; delme (penetrasyon) yeteneğini belirleyen temel katsayı."
+    },
+    "bal_003_ballistic_coefficient": {
+      "formula": "BC = m / (d² * i)",
+      "name_tr": "Balistik Katsayı",
+      "description": "Merminin hava direncini yenme kapasitesi; i: form faktörü."
+    },
+    "bal_004_terminal_tissue_damage": {
+      "formula": "W_permanent = A_proj * L_p",
+      "name_tr": "Kalıcı Yara Kanalı Hacmi",
+      "description": "İnsan vücudunda merminin doğrudan parçaladığı doku hacmi; A: mermi kesit alanı, L: penetrasyon derinliği."
+    },
+    "bal_005_temporary_cavitation": {
+      "formula": "V_temp ∝ K_e * (η / E_tissue)",
+      "name_tr": "Geçici Kavitasyon Şiddeti",
+      "description": "Yüksek hızlı mermilerin dokuda oluşturduğu ani genleşme ve şok dalgası hasarı."
+    },
+    "bal_006_steel_penetration_de_marre": {
+      "formula": "T = (m^0.5 * v) / (K_d * d^0.75)",
+      "name_tr": "De Marre Çelik Delme Formülü",
+      "description": "Merminin belirli bir kalınlıktaki (T) çelik zırhı delip geçme kapasitesi; Kd: materyal direnç sabiti."
+    },
+    "bal_007_aluminum_impact_depth": {
+      "formula": "P = k * (m/A) * v^0.8",
+      "name_tr": "Alüminyum Penetrasyon Derinliği",
+      "description": "Düşük yoğunluklu metallerde (Alüminyum vb.) merminin ilerleme mesafesi."
+    },
+    "bal_008_concrete_wall_spalling": {
+      "formula": "S = (1/f'_c) * (K_e / d³)",
+      "name_tr": "Beton Duvar Parçalanma (Spalling) Eşiği",
+      "description": "Betonun basınç dayanımı (f'c) karşısında merminin oluşturduğu arka yüzey kopma hasarı."
+    },
+    "bal_009_hydrostatic_shock": {
+      "formula": "P_hydro = ρ * c * v",
+      "name_tr": "Hidrostatik Şok Basıncı",
+      "description": "Vücut sıvılarında mermi etkisiyle oluşan ve uzak sinir sistemine iletilen basınç dalgası."
+    },
+    "bal_010_drag_force_air": {
+      "formula": "F_d = ½ ρ v² C_d A",
+      "name_tr": "Hava Direnci Kuvveti",
+      "description": "Uçuş sırasında merminin hızını azaltan dış balistik kuvveti."
+    },
+    "bal_011_armor_piercing_core_energy": {
+      "formula": "E_core = E_total * (m_core / m_total)",
+      "name_tr": "Zırh Delici Çekirdek Enerjisi",
+      "description": "AP mermilerde sertleştirilmiş tungsten/çelik çekirdeğe aktarılan enerji oranı."
+    },
+    "bal_012_retardation_coefficient": {
+      "formula": "r = - (C_d * ρ * A) / (2m)",
+      "name_tr": "Yavaşlama Katsayısı",
+      "description": "Merminin mesafeye bağlı hız kaybı oranı."
+    }
+  }
+
+
   
   "extra_equations_pack_200": {
     "eq001_euler_identity": {"formula":"e^{iπ}+1=0","name_tr":"Euler özdeşliği"},
