@@ -435,18 +435,37 @@
       "formula": "Δ = r² - 2 M r + a² ; ρ² = r² + a² cos²θ",
       "name_tr": "Kerr metriği (dönen kara delik)"
     },
-   "hawking_temperature": {
-    "formula": "T_H = (hbar * c^3) / (8 * pi * G * M * k_B)",
-    "name_tr": "Hawking sıcaklığı",
-    "description": "Schwarzschild kara deliğin Hawking sıcaklığı",
-    "note": "ÖNEMLİ: T_H ∝ 1/M → Kütle arttıkça sıcaklık azalır. Birleşme sonrası toplam kütle (240 M☉) arttığı için sistemin Hawking sıcaklığı başlangıçtaki her iki kara delikten de daha düşük bir seviyeye geriler.",
-    "proportionality": "T_H ∝ 1/M",
-    "values": {
-      "M_10_sun": "6.17e-09 K",
-      "M_230_sun": "2.68e-10 K",
-      "M_final_240_sun": "2.57e-10 K"
-    }
+
+
+    "hawking_temperature": {
+  "formula": "T_H = (hbar * c^3) / (8 * pi * G * M * k_B)",
+  "name_tr": "Hawking sıcaklığı",
+  "note": "ÖNEMLİ: T_H ∝ 1/M. Birleşme sonucu kütle arttığı için sıcaklık düşer.",
+  "values": {
+    "M_10_sun": "6.17e-09 K",
+    "M_final_228_to_240_sun": "2.57e-10 K"
+  }
+},
+
+
+
+    
+
+    "hawking_radiation_power": {
+  "formula": "P = (hbar * c^6) / (15360 * pi * G^2 * M^2)",
+  "name_tr": "Hawking radyasyonu gücü",
+  "description": "Kara deliğin birim zamanda yaydığı toplam ışıma gücü",
+  "note": "P ∝ 1/M² ilişkisi esastır. Kütle arttıkça ışıma gücü karesel olarak azalır.",
+  "values": {
+    "M_10_sun": "9.00e-29 W",
+    "M_240_sun": "1.56e-31 W"
   },
+  "source": "Hawking, S. W. (1975)"
+},
+
+
+
+    
     "bekenstein_entropy": {
       "formula": "S = k_B c³ A / (4 ħ G)",
       "name_tr": "Bekenstein-Hawking entropisi",
@@ -557,6 +576,19 @@
       "formula": "C = S N(d1) - K e^{-r t} N(d2)",
       "name_tr": "Black-Scholes çağrı opsiyon fiyatı"
     },
+
+    "schwarzschild_radius_calculation": {
+  "formula": "r_s = 2 G M / c²",
+  "scaling_factor": "2.953 km / M☉",
+  "values": {
+    "M_10_sun": "29.53 km",
+    "M_230_sun": "679.19 km",
+    "M_final_240_sun": "708.72 km"
+  }
+},
+
+
+    
     "merger_energy_release": {
       "formula": "ΔE = (M₁ + M₂) * η * c²",
       "name_tr": "kara delik çarpışma, schwarzschild",
