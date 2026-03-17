@@ -715,7 +715,68 @@
   },
 
 
-
+"c4_ballistics_and_human_trauma": {
+    "c4_001_chemical_composition": {
+      "formula": "RDX: C3H6N6O6 (91%) + Plasticizer: C10H18O4 (9.2%)",
+      "name_tr": "C4 Kimyasal Kompozisyonu",
+      "description": "C4'ün ana patlayıcı bileşeni olan Siklotrimetilentritramin (RDX) ve plastikleştirici oranı."
+    },
+    "c4_002_detonation_velocity_exact": {
+      "formula": "V_d = 8040 m/s (at ρ = 1.63 g/cm³)",
+      "name_tr": "C4 Detonasyon Hızı",
+      "description": "Şok dalgasının patlayıcı kütlesi içindeki ilerleme hızı."
+    },
+    "c4_003_oxygen_balance": {
+      "formula": "OB% = -21.6%",
+      "name_tr": "Oksijen Dengesi (RDX)",
+      "description": "RDX'in tam yanma için yetersiz oksijene sahip olduğunu, dolayısıyla çevredeki atmosferik oksijenle ikincil yanma (afterburn) yapacağını gösteren katsayı."
+    },
+    "c4_004_afterburn_energy": {
+      "formula": "ΔE_total = ΔE_det + ΔE_oxid",
+      "name_tr": "Toplam Enerji Salınımı",
+      "description": "Ana patlama enerjisi ile atmosferik oksijenle birleşen yanmamış gazların (CO, H2) oluşturduğu ikincil ısı enerjisi toplamı."
+    },
+    "c4_005_friedlander_waveform": {
+      "formula": "P(t) = P_s * (1 - t/t_d) * e^(-b*t/t_d)",
+      "name_tr": "Friedlander Dalga Formu",
+      "description": "Patlama dalgasının zamanla değişen basınç profili; aşırı basınç (P_s) ve sönümleme katsayısı (b) içerir."
+    },
+    "c4_006_blast_overpressure_damage": {
+      "formula": "ΔP_threshold = 100 kPa (Lung Damage)",
+      "name_tr": "Akciğer Hasarı Basınç Eşiği",
+      "description": "İnsan akciğer dokusunda kalıcı hasar ve kanama başlatan minimum statik aşırı basınç değeri."
+    },
+    "c4_007_skull_fracture_acceleration": {
+      "formula": "HIC = ∫ [a(t)]^2.5 dt",
+      "name_tr": "Kafa Travması Kriteri (HIC)",
+      "description": "Patlama dalgasının etkisiyle kafanın maruz kaldığı ivmelenme (a) sonucu oluşan beyin sarsıntısı/kafatası kırığı riski."
+    },
+    "c4_008_body_displacement_kinetic": {
+      "formula": "K_body = ½ m_human * (ΔP * A_human / m_human * Δt)²",
+      "name_tr": "Gözlemci Fırlatma Kinetiği",
+      "description": "Patlama rüzgarının insanın kesit alanına (A) uyguladığı kuvvetle kişiyi fırlatma enerjisi."
+    },
+    "c4_009_thermal_flux_burn": {
+      "formula": "q = √(k ρ c / t) * (T_skin - T_ambient)",
+      "name_tr": "Termal Yanık Akısı",
+      "description": "Patlamadan yayılan ani ısı radyasyonunun insan derisinde oluşturduğu yanık derecesi hesabı."
+    },
+    "c4_010_dynamic_pressure_wind": {
+      "formula": "q = ½ ρ_air * u²",
+      "name_tr": "Dinamik Patlama Basıncı",
+      "description": "Şok cephesinin arkasından gelen yüksek hızlı 'patlama rüzgarı'nın (u) oluşturduğu fiziksel yıkım gücü."
+    },
+    "c4_011_scaled_distance_law": {
+      "formula": "Z = R / W^(1/3)",
+      "name_tr": "Ölçeklenmiş Mesafe (Hopkinson-Cranz)",
+      "description": "Patlayıcı kütlesi (W) ve mesafe (R) arasındaki ilişkiyle yıkım bölgesini belirler."
+    },
+    "c4_012_gaseous_product_volume": {
+      "formula": "V_gas ≈ 900 L/kg",
+      "name_tr": "Gaz Genleşme Oranı",
+      "description": "1 kg C4'ün patlama anında dönüştüğü sıcak gaz hacmi."
+    }
+  },
 
 
 
