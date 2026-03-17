@@ -1360,5 +1360,122 @@
         "description": "Okyanusa olan bir çarpışmanın oluşturduğu dalga yüksekliği (`H_wave`), çarpışma enerjisi, su derinliği ve kıyıya olan uzaklığa bağlıdır. Bu, akışkanlar dinamiği simülasyonları gerektiren karmaşık bir modeldir."
       }
     }
+  },
+  "materials": {
+    "description": "80'den fazla metal, element ve alaşım için fiziksel, kimyasal ve simülasyon parametreleri. Özellikle Al, Fe, Cu, Ti alaşımları ve parçacık sayısına bağlı difüzyon, PDE denklemleri, simülasyon dinamiği ve vortex mekanizması.",
+    "elements": {
+      "Fe": {
+        "name_en": "Iron",
+        "name_tr": "Demir",
+        "symbol": "Fe",
+        "atomic_number": 26,
+        "atomic_mass": 55.845,
+        "physical_properties": {
+          "density": {"value": 7874, "unit": "kg/m³"},
+          "melting_point": {"value": 1811, "unit": "K"},
+          "boiling_point": {"value": 3134, "unit": "K"},
+          "condensation_point": {"value": 3134, "unit": "K", "note": "Kaynama noktasına eşittir."},
+          "freezing_point": {"value": 1811, "unit": "K", "note": "Erime noktasına eşittir."}
+        },
+        "mechanical_properties": {
+          "young_modulus": {"value": 211, "unit": "GPa", "name_tr": "Elastisite Modülü"},
+          "yield_strength": {"value": 170, "unit": "MPa", "name_tr": "Akma Dayanımı (Ezilme başlangıcı)"}
+        },
+        "simulation_parameters": {
+          "diffusion": {
+            "model": "Fickian",
+            "self_diffusion_coefficient": {"formula": "D = D_0 * exp(-Q / (R * T))", "D_0": "6.2e-5 m²/s", "Q": "251 kJ/mol"},
+            "particle_dependent_note": "Parçacık sayısı arttıkça, dislokasyon ve boşluk (vacancy) yoğunluğu artar, bu da difüzyon katsayısını (D) etkiler. Bu etki, simülasyonda monte carlo veya faz alanı (phase-field) modelleriyle eklenebilir."
+          },
+          "pde_models": {
+            "heat_transfer": {"equation": "∂T/∂t = α ∇²T + Q/(ρ*c_p)", "α (thermal_diffusivity)": "2.3e-5 m²/s"},
+            "structural_mechanics": {"equation": "σ = E * ε", "note": "Hooke Yasası'nın tensör formu. Plastik deformasyon için von Mises akma kriteri eklenir."}
+          },
+          "fluid_dynamics": {
+            "kinematic_viscosity_liquid": {"value": 6.98e-7, "unit": "m²/s", "at_temp": "1811 K"},
+            "vortex_mechanism_note": "Ergimiş demirin döküm veya karıştırma süreçlerinde oluşan girdaplar (vortex), Navier-Stokes denklemleri (pde->navier_stokes) ile modellenir. Türbülans için k-epsilon veya k-omega gibi alt modeller kullanılır."
+          }
+        },
+        "alloys": {
+          "steel_carbon": {"name_tr": "Karbon Çeliği", "composition": "Fe, C (0.2-2.1%)", "yield_strength": "250-1600 MPa"},
+          "stainless_steel": {"name_tr": "Paslanmaz Çelik", "composition": "Fe, Cr (>10.5%), Ni", "yield_strength": "205-827 MPa"}
+        }
+      },
+      "Al": {
+        "name_en": "Aluminum",
+        "name_tr": "Alüminyum",
+        "symbol": "Al",
+        "atomic_number": 13,
+        "atomic_mass": 26.982,
+        "physical_properties": {
+          "density": {"value": 2700, "unit": "kg/m³"},
+          "melting_point": {"value": 933.47, "unit": "K"},
+          "boiling_point": {"value": 2792, "unit": "K"}
+        },
+        "mechanical_properties": {
+          "young_modulus": {"value": 70, "unit": "GPa"},
+          "yield_strength": {"value": 20, "unit": "MPa", "note": "Saf halde çok düşüktür."}
+        },
+        "simulation_parameters": {
+            "pde_models": {
+                "note": "PDE modelleri, malzemenin termal ve mekanik davranışını tanımlamak için kullanılır. Örnek: Isı denklemi, dalga denklemi (yapısal titreşimler için).",
+                "heat_equation": "∂u/∂t = α ∇²u"
+            }
+        },
+        "alloys": {
+          "Al-6061": {"name_tr": "6061 Alaşımı", "composition": "Al, Mg, Si", "yield_strength": "276 MPa"},
+          "Al-7075": {"name_tr": "7075 Alaşımı (Uçak Alüminyumu)", "composition": "Al, Zn, Mg, Cu", "yield_strength": "503 MPa"}
+        }
+      },
+      "Cu": {
+        "name_en": "Copper",
+        "name_tr": "Bakır",
+        "symbol": "Cu",
+        "atomic_number": 29,
+        "atomic_mass": 63.546,
+        "physical_properties": {
+          "density": {"value": 8960, "unit": "kg/m³"},
+          "melting_point": {"value": 1357.77, "unit": "K"},
+          "boiling_point": {"value": 2835, "unit": "K"}
+        },
+        "mechanical_properties": {
+          "young_modulus": {"value": 110, "unit": "GPa"},
+          "yield_strength": {"value": 70, "unit": "MPa"}
+        },
+        "simulation_parameters": {
+            "diffusion": {
+                "note": "Parçacık sayısına bağlı difüzyon, özellikle alaşımların homojenizasyonu ve tane büyümesi simülasyonlarında kritiktir."
+            }
+        },
+        "alloys": {
+          "brass": {"name_tr": "Pirinç", "composition": "Cu, Zn", "yield_strength": "95-380 MPa"},
+          "bronze": {"name_tr": "Bronz", "composition": "Cu, Sn", "yield_strength": "125-800 MPa"}
+        }
+      },
+      "Ti": {
+        "name_en": "Titanium",
+        "name_tr": "Titanyum",
+        "symbol": "Ti",
+        "atomic_number": 22,
+        "atomic_mass": 47.867,
+        "physical_properties": {
+          "density": {"value": 4506, "unit": "kg/m³"},
+          "melting_point": {"value": 1941, "unit": "K"},
+          "boiling_point": {"value": 3560, "unit": "K"}
+        },
+        "mechanical_properties": {
+          "young_modulus": {"value": 116, "unit": "GPa"},
+          "yield_strength": {"value": 220, "unit": "MPa"}
+        },
+        "simulation_parameters": {
+            "vortex_mechanism": {
+                "note": "Ergimiş titanyum gibi reaktif metallerin vakum ark ergitme (VAR) veya soğuk pota indüksiyon ergitme (CIM) süreçlerinde oluşan akışkan girdapları, nihai malzemenin saflığını ve homojenliğini belirler. Bu simülasyonlar genellikle manyetohidrodinamik (MHD) denklemlerini içerir."
+            }
+        },
+        "alloys": {
+          "Ti-6Al-4V": {"name_tr": "Ti-6Al-4V (Grade 5)", "composition": "Ti, Al (6%), V (4%)", "yield_strength": "830 MPa", "note": "En yaygın titanyum alaşımıdır."}
+        }
+      }
+    }
   }
 }
