@@ -8651,6 +8651,11 @@ class OllamaClient:
         bound_steps = []
         for step in steps:
             st = dict(step)
+            if st.get("_planner_step"):
+                # Planlayıcı adımları kullanıcıya içerik odaklı başlıkla gösterilir;
+                # debug benzeri "queued" vb. ekler enjekte edilmez.
+                bound_steps.append(st)
+                continue
             title = str(st.get("title", "")).strip()
             res = str(st.get("result", "")).strip()
             # 1) Eksik result'u içerikten/ formülden çek
@@ -16301,15 +16306,36 @@ def _build_graph_automaton_payload(question: str, sol_data: dict, width: int = 5
 
 def _decompose_multi_questions(question: str) -> list:
     """
-    Soru metnini NLP-benzeri basit ayraçlarla alt sorulara böler.
-    Konuya özel hardcoding yerine genel ayırıcılar kullanılır: '?', 'soru1:', satır blokları.
+    Soru metnini alt sorulara böler.
+    Öncelik gerçek soru cümlelerindedir (özellikle "Sorular:" bölümünden sonrası).
+    Amaç: planlayıcı debug parçaları yerine kullanıcıya anlamlı soru adımları üretmek.
     """
+    qtext = (question or "").strip()
+    if not qtext:
+        return []
+
+    # "Sorular:" bloğu varsa önce onu hedefle
+    focus = qtext
+    m = re.search(r"\bsorular?\s*:\s*(.+)$", qtext, flags=re.IGNORECASE | re.DOTALL)
+    if m:
+        focus = m.group(1).strip()
+
     chunks = []
-    raw_parts = re.split(r"(?:\?\s+|\n+|(?=soru\d*\s*:))", question, flags=re.IGNORECASE)
-    for part in raw_parts:
+
+    # 1) Öncelik: '?' ile biten gerçek soru cümleleri
+    for part in re.split(r"\?\s*", focus):
         clean = re.sub(r"^\s*soru\d*\s*:\s*", "", part.strip(), flags=re.IGNORECASE)
         if len(clean) >= 8:
-            chunks.append(clean if clean.endswith("?") else clean + "?")
+            chunks.append(clean + "?")
+
+    # 2) Fallback: hiç soru işareti yoksa satır/bölüm bazlı kırılım
+    if not chunks:
+        raw_parts = re.split(r"(?:\n+|(?=soru\d*\s*:))", focus, flags=re.IGNORECASE)
+        for part in raw_parts:
+            clean = re.sub(r"^\s*soru\d*\s*:\s*", "", part.strip(), flags=re.IGNORECASE)
+            if len(clean) >= 12:
+                chunks.append(clean if clean.endswith("?") else clean + "?")
+
     # Aynı parçaları tekilleştir (sıra korunur)
     uniq = []
     seen = set()
@@ -16321,6 +16347,51 @@ def _decompose_multi_questions(question: str) -> list:
     return uniq[:24]
 
 
+def _planner_topic_title(sub_question: str, i: int, total: int, intent: str) -> str:
+    """
+    Alt soru için içerik odaklı (NLP-benzeri) başlık üretir.
+    Planlayıcı modülü/düğüm adını değil, soru konusunu gösterir.
+    """
+    text = (sub_question or "").strip()
+    normalized = re.sub(r"[^\wçğıöşüÇĞİÖŞÜ\s%-]", " ", text, flags=re.UNICODE).lower()
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    stop_words = {
+        "ve",
+        "veya",
+        "ile",
+        "için",
+        "olan",
+        "olarak",
+        "bu",
+        "şu",
+        "bir",
+        "iki",
+        "üç",
+        "dört",
+        "sonunda",
+        "tur",
+        "soru",
+        "sorular",
+    }
+    tokens = [t for t in normalized.split() if len(t) > 2 and t not in stop_words]
+    topic = " ".join(tokens[:4]).strip() or f"alt-soru {i}"
+
+    if re.search(r"\b(olasılık|ihtimal|şans|oran|yüzde|%)\b", normalized):
+        prefix = "Olasılık Analizi"
+    elif re.search(r"\b(en yüksek|en düşük|maksimum|minimum|sırala)\b", normalized):
+        prefix = "Karşılaştırmalı Değerlendirme"
+    elif re.search(r"\b(kim|hangi|hangisi)\b", normalized):
+        prefix = "Hedef Varlık Seçimi"
+    elif re.search(r"\b(kaç|ne kadar|toplam|puan|değer)\b", normalized):
+        prefix = "Nicel Hesaplama"
+    else:
+        intent_label = (intent or "genel").replace("_", " ").strip().title()
+        prefix = f"{intent_label} Çözümü"
+
+    return f"{prefix} ({i}/{total}) — {topic[:44]}"
+
+
 def _build_planner_steps(sub_questions: list, route_features: dict) -> list:
     """Planlayıcı çıktısını adım listesi formatında döndürür."""
     steps = []
@@ -16329,10 +16400,11 @@ def _build_planner_steps(sub_questions: list, route_features: dict) -> list:
     for i, sq in enumerate(sub_questions, 1):
         steps.append(
             {
-                "title": f"Plan Düğümü {i}/{total}",
-                "content": f"Alt soru ayrıştırıldı ve rota kuyruğuna alındı: {sq}",
-                "formula": f"intent={intent}, sıra={i}/{total}",
-                "result": "queued",
+                "title": _planner_topic_title(sq, i, total, intent),
+                "content": sq,
+                "formula": "",
+                "result": "",
+                "_planner_step": True,
             }
         )
     return steps
