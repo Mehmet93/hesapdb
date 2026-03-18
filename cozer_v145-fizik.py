@@ -40,6 +40,14 @@ import numpy as np
 import base64
 
 try:
+    import gmpy2
+
+    _GMPY2_OK = True
+except Exception:
+    gmpy2 = None
+    _GMPY2_OK = False
+
+try:
     import matplotlib
 
     matplotlib.use("Agg")
@@ -8606,6 +8614,9 @@ class CloudUniversalEquationRepository:
         Hard-coded kategori/anahtar kelime listesi içermez.
         """
         retrieved = self.retriever.retrieve(question, top_k=24, min_score=0.08)
+        constants_hp, hp_info = _hp_constants_engine.enrich_constants(
+            self.db.get("constants", {})
+        )
         equations = {}
         for item in retrieved:
             cat = item["category"]
@@ -8615,19 +8626,161 @@ class CloudUniversalEquationRepository:
             bucket[key] = val
 
         return {
-            "constants": self.db.get("constants", {}),
+            "constants": constants_hp,
             "equations": equations,
             "metadata": {
                 "last_updated": datetime.datetime.now().isoformat(),
                 "retrieved_items": len(retrieved),
                 "retriever": "FormulaSemanticRetriever-v2",
                 "top_categories": [x["category"] for x in retrieved[:6]],
+                "high_precision": hp_info,
             },
         }
 
     def get_all(self) -> dict:
         """Tüm DB (nadiren kullanılır)."""
         return self.db
+
+
+class HighPrecisionConstantsEngine:
+    """
+    Universe sabitlerini yüksek hassasiyette normalize eder.
+    - gmpy2 varsa GMP/MPFR ile hesaplar.
+    - Yoksa Decimal fallback kullanır.
+    """
+
+    def __init__(self, precision_bits: int = 100000, display_digits: int = 120):
+        self.precision_bits = max(256, int(precision_bits))
+        self.display_digits = max(32, int(display_digits))
+        self.backend = "gmpy2" if _GMPY2_OK else "decimal"
+        if _GMPY2_OK:
+            gmpy2.get_context().precision = self.precision_bits
+
+    def _to_mpfr(self, value):
+        if _GMPY2_OK:
+            return gmpy2.mpfr(str(value))
+        return Decimal(str(value))
+
+    def _fmt(self, value):
+        if _GMPY2_OK:
+            return gmpy2.nstr(value, self.display_digits)
+        return format(value, f".{self.display_digits}g")
+
+    def _get_base_value(self, constants: dict, key: str):
+        if key not in constants:
+            return None
+        entry = constants.get(key, {})
+        raw = entry.get("value") if isinstance(entry, dict) else entry
+        if raw is None:
+            return None
+        return self._to_mpfr(raw)
+
+    def _planck_scales(self, constants: dict) -> dict:
+        c = self._get_base_value(constants, "c")
+        G = self._get_base_value(constants, "G")
+        hbar = self._get_base_value(constants, "hbar")
+        k_B = self._get_base_value(constants, "k_B")
+        if c is None or G is None or hbar is None:
+            return {}
+
+        if _GMPY2_OK:
+            sqrt_fn = gmpy2.sqrt
+        else:
+            sqrt_fn = lambda x: x.sqrt() if hasattr(x, "sqrt") else Decimal(x).sqrt()
+
+        c2, c3, c5 = c * c, c * c * c, c * c * c * c * c
+        l_p = sqrt_fn(hbar * G / c3)
+        t_p = l_p / c
+        m_p = sqrt_fn(hbar * c / G)
+        e_p = m_p * c2
+        out = {
+            "l_P": {
+                "value_hp": self._fmt(l_p),
+                "unit": "m",
+                "name": "Planck length",
+                "name_tr": "Planck uzunluğu",
+            },
+            "t_P": {
+                "value_hp": self._fmt(t_p),
+                "unit": "s",
+                "name": "Planck time",
+                "name_tr": "Planck zamanı",
+            },
+            "m_P": {
+                "value_hp": self._fmt(m_p),
+                "unit": "kg",
+                "name": "Planck mass",
+                "name_tr": "Planck kütlesi",
+            },
+            "E_P": {
+                "value_hp": self._fmt(e_p),
+                "unit": "J",
+                "name": "Planck energy",
+                "name_tr": "Planck enerjisi",
+            },
+            "f_P": {
+                "value_hp": self._fmt(c / l_p),
+                "unit": "Hz",
+                "name": "Planck frequency",
+                "name_tr": "Planck frekansı",
+            },
+            "rho_P": {
+                "value_hp": self._fmt(c5 / (hbar * (G * G))),
+                "unit": "kg m^-3",
+                "name": "Planck density",
+                "name_tr": "Planck yoğunluğu",
+            },
+        }
+
+        if k_B is not None:
+            out["T_P"] = {
+                "value_hp": self._fmt(e_p / k_B),
+                "unit": "K",
+                "name": "Planck temperature",
+                "name_tr": "Planck sıcaklığı",
+            }
+        return out
+
+    def enrich_constants(self, constants: dict) -> tuple:
+        base = constants or {}
+        enriched = {}
+        for key, payload in base.items():
+            if isinstance(payload, dict):
+                item = dict(payload)
+                if "value" in item:
+                    try:
+                        item["value_hp"] = self._fmt(self._to_mpfr(item["value"]))
+                    except Exception:
+                        pass
+                enriched[key] = item
+            else:
+                try:
+                    enriched[key] = {"value": payload, "value_hp": self._fmt(self._to_mpfr(payload))}
+                except Exception:
+                    enriched[key] = {"value": payload}
+
+        pi_val = gmpy2.const_pi() if _GMPY2_OK else Decimal(str(math.pi))
+        enriched["pi"] = {
+            "value_hp": self._fmt(pi_val),
+            "unit": "-",
+            "name": "Pi constant",
+            "name_tr": "Pi sabiti",
+            "source": self.backend,
+        }
+
+        enriched["planck_scales"] = self._planck_scales(enriched)
+        info = {
+            "backend": self.backend,
+            "enabled": bool(_GMPY2_OK),
+            "precision_bits": self.precision_bits if _GMPY2_OK else None,
+            "display_digits": self.display_digits,
+            "note": (
+                f"GMP/MPFR aktif ({self.precision_bits} bit)"
+                if _GMPY2_OK
+                else "gmpy2 bulunamadı, Decimal fallback kullanıldı"
+            ),
+        }
+        return enriched, info
 
 
 class FormulaSemanticRetriever:
@@ -14789,6 +14942,7 @@ sem = SemanticSignalModule()
 scorer = BARTConsistencyScorer()
 _corrector = SolutionCorrector()
 # ★ MOD10: Cloud Equation Universe singleton
+_hp_constants_engine = HighPrecisionConstantsEngine(precision_bits=100000, display_digits=120)
 eq_universe = CloudUniversalEquationRepository()
 
 # Yeni koordinasyon yardımcıları
@@ -15207,6 +15361,7 @@ body::after {
     <span id="route-display">Route: {{ stats.layout }}</span>
     <span id="reward-display">Reward: {{ stats.reward }}</span>
     <span>Süre: {{ stats.elapsed }}</span>
+    <span v-if="gmpInfo" style="color:var(--cyan);">🔢 {{ gmpInfo }}</span>
     <span style="margin-left:auto;color:var(--text3);">phi4:14b @ Ollama · Algoritmik ASCII Engine · No Hardcoding</span>
   </div>
 
@@ -15322,6 +15477,7 @@ createApp({
       searchResult: null,
       graphData: null,
       graphImage: '',
+      gmpInfo: '',
     };
   },
 
@@ -15420,6 +15576,7 @@ createApp({
         this.lastResult   = data;   // PDF için sakla
         this.graphData    = data.graph_data || null;
         this.graphImage   = data.graph_image || '';
+        this.gmpInfo      = data.precision_backend_info || '';
         this.$nextTick(() => this.renderGraph(this.graphData, this.graphImage));
 
         // Stats güncelle
@@ -15461,6 +15618,7 @@ createApp({
       this.lastResult  = null;
       this.graphData   = null;
       this.graphImage  = '';
+      this.gmpInfo     = '';
       this.$nextTick(() => this.renderGraph(null, ''));
       this.stats       = { layout: '—', reward: '—', elapsed: '—', intent: '—', episode: this.stats.episode };
       ['st-route','st-reward','st-intent'].forEach(id => {
@@ -17496,6 +17654,11 @@ def solve():
                 graph_payload.get("quality", {}).get("score")
                 if isinstance(graph_payload, dict)
                 else None
+            ),
+            "precision_backend_info": (
+                f"✅ {eq_ctx.get('metadata', {}).get('high_precision', {}).get('note', '')}"
+                if eq_ctx.get("metadata", {}).get("high_precision")
+                else ""
             ),
             "arithmetic_accuracy": float(sol_data.get("_arithmetic_accuracy", 0.0)),
             "arithmetic_grade": str(sol_data.get("_arithmetic_grade", "D")),
