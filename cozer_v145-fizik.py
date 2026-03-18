@@ -5625,6 +5625,316 @@ class NumericTruthValidator:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  GLOBAL NUMERIC-SYMBOLIC-UNIT NORMALIZER
+#  Negatif değer, sembolik ifade ve birim imzalarını program genelinde tekilleştirir.
+# ═══════════════════════════════════════════════════════════════════════════════
+class NumericSymbolicUnitNormalizer:
+    """
+    - Negatif sayı yuvarlamasını sign-preserving olarak yapar.
+    - Sembolik ifadeleri (sympy varsa) sayısal karşılığa indirger.
+    - Birim ifadelerini çarpma/bölme/üs düzeyinde imza olarak normalleştirir.
+    """
+
+    def __init__(self, precision: int = 8):
+        self.precision = max(2, int(precision))
+        self.quant = Decimal("1").scaleb(-self.precision)
+
+    def _round_signed(self, val: Decimal) -> Decimal:
+        sign = Decimal("-1") if val < 0 else Decimal("1")
+        mag = abs(val).quantize(self.quant)
+        out = sign * mag
+        # -0.00000000 gibi artefact'ları temizle
+        if abs(out) < self.quant:
+            return Decimal("0")
+        return out
+
+    def _to_decimal(self, raw: str) -> Decimal | None:
+        t = (raw or "").strip().replace(",", ".")
+        if not t:
+            return None
+        # Kesir desteği
+        if re.fullmatch(r"[-+]?\d+\s*/\s*[-+]?\d+", t):
+            a, b = re.split(r"/", t)
+            try:
+                a_dec, b_dec = Decimal(a.strip()), Decimal(b.strip())
+                if b_dec == 0:
+                    return None
+                return a_dec / b_dec
+            except Exception:
+                return None
+        try:
+            return Decimal(t)
+        except Exception:
+            pass
+
+        if _SYMPY_OK:
+            try:
+                expr = t.replace("^", "**").replace("−", "-")
+                val = sp.N(sp.sympify(expr, evaluate=True), 60)
+                if val.is_real:
+                    return Decimal(str(val))
+            except Exception:
+                return None
+        return None
+
+    def _format_decimal(self, val: Decimal) -> str:
+        vv = self._round_signed(val)
+        txt = format(vv, f"f")
+        if "." in txt:
+            txt = txt.rstrip("0").rstrip(".")
+        return txt or "0"
+
+    def normalize_numeric_text(self, text: str) -> str:
+        if not text:
+            return text
+        src = str(text).replace("−", "-")
+
+        # Önce kesirleri, sonra ondalık/tam sayıları normalize et
+        def _repl(m):
+            raw = m.group(0)
+            dec = self._to_decimal(raw)
+            if dec is None:
+                return raw
+            return self._format_decimal(dec)
+
+        src = re.sub(r"[-+]?\d+\s*/\s*[-+]?\d+", _repl, src)
+        src = re.sub(r"(?<![A-Za-z_])[-+]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:[eE][-+]?\d+)?", _repl, src)
+        return src
+
+    def unit_signature(self, unit_expr: str) -> str:
+        """Birim ifadesini kanonik imzaya çevirir: m*s^-2 gibi."""
+        expr = (unit_expr or "").replace("·", "*").replace(" ", "")
+        if not expr:
+            return ""
+        parts = re.split(r"([*/])", expr)
+        sign = 1
+        expo = defaultdict(Decimal)
+        for p in parts:
+            if p == "*":
+                sign = 1
+                continue
+            if p == "/":
+                sign = -1
+                continue
+            if not p:
+                continue
+            m = re.fullmatch(r"([A-Za-zµΩ°]+)(?:\^?([-+]?\d+(?:\.\d+)?))?", p)
+            if not m:
+                continue
+            u = m.group(1)
+            pw = Decimal(m.group(2) if m.group(2) is not None else "1")
+            expo[u] += sign * pw
+
+        items = []
+        for k in sorted(expo.keys()):
+            v = expo[k]
+            if v == 0:
+                continue
+            vv = self._format_decimal(v)
+            items.append(f"{k}^{vv}" if vv != "1" else k)
+        return "*".join(items)
+
+    def annotate_units(self, text: str) -> list:
+        """Metinde geçen sayı+birim kalıplarından imza listesi çıkarır."""
+        if not text:
+            return []
+        hits = []
+        pattern = re.compile(r"[-+]?\d+(?:\.\d+)?\s*([A-Za-zµΩ°]+(?:\s*[*/·]\s*[A-Za-zµΩ°]+(?:\^-?\d+)?)*)")
+        for m in pattern.finditer(str(text)):
+            sig = self.unit_signature(m.group(1))
+            if sig:
+                hits.append(sig)
+        # sıra korumalı unique
+        uniq, seen = [], set()
+        for h in hits:
+            if h not in seen:
+                seen.add(h)
+                uniq.append(h)
+        return uniq
+
+    def normalize_solution_payload(self, sol_data: dict) -> dict:
+        d = dict(sol_data or {})
+        for key in ("answer", "numeric", "formula"):
+            if key in d and isinstance(d.get(key), (str, int, float, Decimal)):
+                d[key] = self.normalize_numeric_text(str(d.get(key)))
+
+        steps = []
+        for st in d.get("steps", []) or []:
+            ss = dict(st)
+            for key in ("formula", "result", "content", "title"):
+                if key in ss and isinstance(ss.get(key), (str, int, float, Decimal)):
+                    ss[key] = self.normalize_numeric_text(str(ss.get(key)))
+            unit_hints = []
+            for key in ("formula", "result", "content"):
+                unit_hints.extend(self.annotate_units(ss.get(key, "")))
+            if unit_hints:
+                ss["_unit_signatures"] = list(dict.fromkeys(unit_hints))
+            steps.append(ss)
+        d["steps"] = steps
+
+        root_units = []
+        for key in ("answer", "numeric", "formula"):
+            root_units.extend(self.annotate_units(d.get(key, "")))
+        if root_units:
+            d["_unit_signatures"] = list(dict.fromkeys(root_units))
+        return d
+
+
+_global_num_unit_normalizer = NumericSymbolicUnitNormalizer(precision=8)
+
+
+class ArithmeticAccuracyScorer:
+    """
+    Formül/kelime bağımsız aritmetik doğruluk denetçisi.
+    - Adımlardan denklem/atama çıkarır.
+    - Sembolik bağıntıları olabildiğince sayısal değerlere indirger.
+    - Sonuç metnindeki değerlerle karşılaştırır, skorlama ve düzeltme üretir.
+    """
+
+    def __init__(self, rel_tol: Decimal = Decimal("1e-6"), abs_tol: Decimal = Decimal("1e-8")):
+        self.rel_tol = Decimal(rel_tol)
+        self.abs_tol = Decimal(abs_tol)
+
+    def _norm_expr(self, expr: str) -> str:
+        t = (expr or "")
+        t = t.replace("×", "*").replace("÷", "/").replace("^", "**").replace("π", "pi")
+        t = t.replace("−", "-")
+        t = re.sub(r"\bpi\b", "pi", t)
+        return t.strip()
+
+    def _extract_assignments(self, text: str) -> list:
+        if not text:
+            return []
+        t = self._norm_expr(text)
+        out = []
+        for m in re.finditer(
+            r"([A-Za-z_α-ωΑ-Ω][A-Za-z0-9_α-ωΑ-Ω]*)\s*=\s*([^=\n]+)", t
+        ):
+            lhs = m.group(1).strip()
+            rhs = m.group(2).strip()
+            rhs = rhs.split("→")[0].strip()
+            rhs = rhs.split("≈")[0].strip()
+            out.append((lhs, rhs))
+        return out
+
+    def _first_number(self, text: str) -> Decimal | None:
+        if not text:
+            return None
+        m = re.search(r"[-+]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:[eE][-+]?\d+)?", str(text))
+        if not m:
+            return None
+        return _global_num_unit_normalizer._to_decimal(m.group(0))
+
+    def _safe_eval(self, expr: str, symbol_table: dict) -> Decimal | None:
+        expr_n = self._norm_expr(expr)
+        if not expr_n:
+            return None
+        if _SYMPY_OK:
+            try:
+                locals_map = {"pi": sp.pi, "e": sp.E, "sqrt": sp.sqrt}
+                for k, v in symbol_table.items():
+                    locals_map[str(k)] = sp.Float(str(v))
+                val = sp.N(sp.sympify(expr_n, locals=locals_map, evaluate=True), 70)
+                free = getattr(val, "free_symbols", set())
+                if free:
+                    return None
+                if not bool(val.is_real):
+                    return None
+                return Decimal(str(val))
+            except Exception:
+                return None
+        # sympy yoksa sadece sayısal güvenli eval
+        if not re.fullmatch(r"[0-9eE+\-*/().\s]+", expr_n):
+            return None
+        try:
+            return Decimal(str(eval(expr_n, {"__builtins__": {}}, {})))
+        except Exception:
+            return None
+
+    def _score_pair(self, expected: Decimal, observed: Decimal | None) -> tuple:
+        if observed is None:
+            return Decimal("0.7"), "observed_missing"
+        delta = abs(expected - observed)
+        rel = delta / (abs(observed) + Decimal("1e-20"))
+        if delta <= self.abs_tol or rel <= self.rel_tol:
+            return Decimal("1.0"), "ok"
+        # Kademeli skor (hard-threshold yerine sürekli)
+        penalty = min(Decimal("1"), (rel.ln() + Decimal("1")) / Decimal("6")) if rel > 0 else Decimal("0")
+        score = max(Decimal("0"), Decimal("1") - penalty)
+        return score, f"mismatch rel={rel:.3E}"
+
+    def audit_solution(self, sol_data: dict) -> dict:
+        d = dict(sol_data or {})
+        steps = [dict(x) for x in (d.get("steps") or [])]
+        symbol_table = {}
+        step_scores = []
+        notes = []
+
+        # Kök metinden sayılar/atamalar yakala
+        root_blob = " ".join(str(d.get(k, "")) for k in ("formula", "numeric", "answer"))
+        for lhs, rhs in self._extract_assignments(root_blob):
+            val = self._safe_eval(rhs, symbol_table)
+            if val is not None:
+                symbol_table[lhs] = val
+
+        for i, st in enumerate(steps, 1):
+            formula = str(st.get("formula", "") or "")
+            result_text = str(st.get("result", "") or "")
+            content = str(st.get("content", "") or "")
+            assigns = self._extract_assignments(formula) + self._extract_assignments(content)
+
+            if not assigns:
+                obs = self._first_number(result_text)
+                if obs is not None:
+                    step_scores.append(Decimal("0.75"))
+                    st["_arith_score"] = 0.75
+                else:
+                    step_scores.append(Decimal("0.5"))
+                    st["_arith_score"] = 0.5
+                steps[i - 1] = st
+                continue
+
+            local_scores = []
+            for lhs, rhs in assigns:
+                calc = self._safe_eval(rhs, symbol_table)
+                if calc is None:
+                    local_scores.append(Decimal("0.45"))
+                    continue
+
+                symbol_table[lhs] = calc
+                observed = self._first_number(result_text)
+                sc, reason = self._score_pair(calc, observed)
+                local_scores.append(sc)
+
+                # Otomatik düzeltme: belirgin sapma varsa sonucu güncelle
+                if sc < Decimal("0.92"):
+                    fmt = _global_num_unit_normalizer._format_decimal(calc)
+                    st["result"] = fmt
+                    notes.append(f"[ARITH-FIX] Step {i}: {lhs} => {fmt} ({reason})")
+                elif not result_text.strip():
+                    st["result"] = _global_num_unit_normalizer._format_decimal(calc)
+
+            step_score = sum(local_scores) / Decimal(len(local_scores))
+            step_scores.append(step_score)
+            st["_arith_score"] = float(round(step_score, 6))
+            steps[i - 1] = st
+
+        overall = (sum(step_scores) / Decimal(len(step_scores))) if step_scores else Decimal("0")
+        pct = float((overall * Decimal("100")).quantize(Decimal("0.01")))
+
+        d["steps"] = steps
+        d["_arithmetic_step_scores"] = [float(round(x, 6)) for x in step_scores]
+        d["_arithmetic_accuracy"] = pct
+        d["_arithmetic_notes"] = notes
+        d["_arithmetic_grade"] = (
+            "A" if pct >= 95 else "B" if pct >= 85 else "C" if pct >= 70 else "D"
+        )
+        return d
+
+
+_global_arith_scorer = ArithmeticAccuracyScorer()
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  ARITHMETIC PRECISION VALIDATOR — Tüm aritmetik adımlar için yüksek doğruluk
 #  Amaç: eksi/mertebe hatalarını otomatik düzeltmek, içsel tutarsızlıkları yakalamak
 #  Hard-coding yok; genel ifadeleri Decimal + Sympy ile yeniden hesaplar.
@@ -5723,9 +6033,12 @@ class ArithmeticPrecisionValidator:
             return None
 
     def _format_sci(self, val: Decimal) -> str:
-        """Bilimsel gösterim, 6 anlamlı rakam, mühendislik mertebesi hatalarını engeller."""
+        """Negatif/pozitif değerlerde simetrik yuvarlama ve stabil gösterim."""
         try:
-            return format(val, ".6E")
+            val = _global_num_unit_normalizer._round_signed(Decimal(val))
+            if abs(val) >= Decimal("1e6") or (abs(val) > 0 and abs(val) < Decimal("1e-4")):
+                return format(val, ".6E")
+            return _global_num_unit_normalizer._format_decimal(val)
         except Exception:
             return str(val)
 
@@ -16565,6 +16878,375 @@ def _render_matplotlib_graph_base64(payload: dict) -> Optional[str]:
             "has_meta_prefix": 1 if re.search(r"^(mekanlar|durumlar|states)\s*[:\-]", t) else 0,
         }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  ADAPTIVE SIMULATION / DRAWING STACK (NLP + Q-LEARNING + TOOL ROUTER)
+# ═══════════════════════════════════════════════════════════════════════════════
+class PhysicsCompositionDSLParser:
+    """Doğal dil fizik/simülasyon isteklerini parametrik bileşenlere ayırır."""
+
+    def _tokenize(self, text: str) -> list:
+        return re.findall(r"[a-zA-ZçğıöşüÇĞİÖŞÜ0-9_]+", (text or "").lower())
+
+    def parse(self, text: str) -> dict:
+        toks = self._tokenize(text)
+        numbers = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", text or "")]
+        verbs = re.findall(r"(simüle|çiz|render|görselleştir|canlandır|hesapla|iterate|step|animate)", (text or "").lower())
+        operator_density = len(re.findall(r"[+\-*/=^∂∇]", text or "")) / max(len(text or ""), 1)
+        spatial_score = sum(1 for t in toks if t in {"2d", "3d", "vektör", "alan", "grid", "mesh", "kare", "küre", "voxel"})
+        temporal_score = sum(1 for t in toks if t in {"zaman", "adım", "iterasyon", "süre", "dt", "anlık", "canlı"})
+        uncertainty_score = sum(1 for t in toks if t in {"stokastik", "rastgele", "gürültü", "noise", "brownian", "sde"})
+
+        components = []
+        if spatial_score > 0:
+            components.append("spatial_field")
+        if temporal_score > 0:
+            components.append("time_evolution")
+        if uncertainty_score > 0:
+            components.append("stochasticity")
+        if any(t in {"akış", "diffusion", "ısı", "dalga", "pde"} for t in toks):
+            components.append("pde_dynamics")
+        if any(t in {"parçacık", "nbody", "particle", "gravity", "çarpışma"} for t in toks):
+            components.append("particle_dynamics")
+        if any(t in {"hücre", "cellular", "otomata", "ca"} for t in toks):
+            components.append("cellular_automata")
+
+        return {
+            "tokens": toks,
+            "numbers": numbers,
+            "operator_density": operator_density,
+            "verb_count": len(verbs),
+            "spatial_score": spatial_score,
+            "temporal_score": temporal_score,
+            "uncertainty_score": uncertainty_score,
+            "components": sorted(set(components)),
+        }
+
+
+class SimulationSandboxManager:
+    """Simülasyon görevleri için kaynak kotası ve güvenlik sınırları."""
+
+    def __init__(self, max_steps: int = 2000, max_particles: int = 100000, max_grid: int = 512):
+        self.max_steps = int(max_steps)
+        self.max_particles = int(max_particles)
+        self.max_grid = int(max_grid)
+
+    def clamp(self, config: dict) -> dict:
+        c = dict(config or {})
+        c["steps"] = min(int(c.get("steps", 120)), self.max_steps)
+        c["particles"] = min(int(c.get("particles", 1000)), self.max_particles)
+        c["grid_size"] = min(int(c.get("grid_size", 64)), self.max_grid)
+        c["dt"] = max(1e-4, float(c.get("dt", 0.05)))
+        return c
+
+
+class ComputeBackendOrchestrator:
+    """CPU/WASM/GPU/REMOTE arka uç seçicisi."""
+
+    def inspect_resources(self) -> dict:
+        cpu_count = os.cpu_count() or 1
+        mem_hint = 8.0
+        try:
+            page = os.sysconf("SC_PAGE_SIZE")
+            pages = os.sysconf("SC_PHYS_PAGES")
+            mem_hint = (page * pages) / (1024**3)
+        except Exception:
+            pass
+        has_cuda = bool(_TORCH_OK and getattr(torch, "cuda", None) and torch.cuda.is_available())
+        return {
+            "cpu_count": cpu_count,
+            "memory_gb": round(float(mem_hint), 2),
+            "has_cuda": has_cuda,
+            "wasm_ready": True,
+            "remote_ready": True,
+        }
+
+    def choose_backend(self, workload: dict) -> dict:
+        resources = self.inspect_resources()
+        w = dict(workload or {})
+        complexity = float(w.get("complexity", 1.0))
+        realtime = float(w.get("realtime_weight", 0.5))
+        frame = int(w.get("frame_budget_ms", 33))
+
+        candidates = ["cpu", "wasm", "gpu", "remote"]
+        scores = {}
+        for name in candidates:
+            base = 0.0
+            if name == "cpu":
+                base = min(1.0, resources["cpu_count"] / 8.0)
+            elif name == "wasm":
+                base = 0.7 if resources["wasm_ready"] else 0.0
+            elif name == "gpu":
+                base = 1.2 if resources["has_cuda"] else 0.05
+            elif name == "remote":
+                base = 0.8 if resources["remote_ready"] else 0.0
+            latency_penalty = 0.35 if (name == "remote" and frame < 25) else 0.0
+            scores[name] = base + complexity * (0.2 if name in {"gpu", "remote"} else 0.08) + realtime * 0.15 - latency_penalty
+
+        chosen = max(scores, key=scores.get)
+        return {"chosen": chosen, "scores": scores, "resources": resources}
+
+
+class SimulationEngineAdapter:
+    """Ortak simülasyon adaptör arayüzü."""
+
+    engine_name = "generic"
+
+    def init(self, config: dict, dsl: dict) -> dict:
+        return {"t": 0.0, "config": dict(config or {}), "dsl": dict(dsl or {}), "series": []}
+
+    def step(self, state: dict, dt: float = 0.05) -> dict:
+        t = float(state.get("t", 0.0)) + float(dt)
+        series = list(state.get("series", []))
+        series.append({"t": t, "y": math.sin(t)})
+        return {**state, "t": t, "series": series[-400:]}
+
+    def snapshot(self, state: dict) -> dict:
+        return {"engine": self.engine_name, "t": state.get("t", 0.0), "series": state.get("series", [])[-120:]}
+
+
+class PDEEngineAdapter(SimulationEngineAdapter):
+    engine_name = "pde"
+
+    def init(self, config: dict, dsl: dict) -> dict:
+        c = dict(config or {})
+        n = int(c.get("grid_size", 64))
+        x = np.linspace(0.0, 1.0, n)
+        u = np.exp(-((x - 0.5) ** 2) / 0.01)
+        return {"t": 0.0, "x": x, "u": u, "alpha": float(c.get("alpha", 0.08)), "config": c}
+
+    def step(self, state: dict, dt: float = 0.01) -> dict:
+        u = np.array(state.get("u"), dtype=float)
+        alpha = float(state.get("alpha", 0.08))
+        lap = np.zeros_like(u)
+        lap[1:-1] = u[:-2] - 2 * u[1:-1] + u[2:]
+        u2 = u + alpha * dt * lap
+        u2[0] = u2[-1] = 0.0
+        return {**state, "u": u2, "t": float(state.get("t", 0.0)) + dt}
+
+    def snapshot(self, state: dict) -> dict:
+        return {"engine": self.engine_name, "t": float(state.get("t", 0.0)), "x": [float(v) for v in state.get("x", [])[:256]], "u": [float(v) for v in state.get("u", [])[:256]]}
+
+
+class ParticleEngineAdapter(SimulationEngineAdapter):
+    engine_name = "particle"
+
+    def init(self, config: dict, dsl: dict) -> dict:
+        c = dict(config or {})
+        n = int(c.get("particles", 300))
+        rng = np.random.default_rng(seed=42)
+        pos = rng.normal(0, 1, size=(n, 2))
+        vel = rng.normal(0, 0.2, size=(n, 2))
+        return {"t": 0.0, "pos": pos, "vel": vel, "drag": float(c.get("drag", 0.02)), "config": c}
+
+    def step(self, state: dict, dt: float = 0.03) -> dict:
+        pos = np.array(state.get("pos"), dtype=float)
+        vel = np.array(state.get("vel"), dtype=float)
+        drag = float(state.get("drag", 0.02))
+        center_force = -0.1 * pos
+        vel = vel + center_force * dt
+        vel *= max(0.0, 1.0 - drag)
+        pos = pos + vel * dt
+        return {**state, "t": float(state.get("t", 0.0)) + dt, "pos": pos, "vel": vel}
+
+    def snapshot(self, state: dict) -> dict:
+        p = np.array(state.get("pos"), dtype=float)
+        return {"engine": self.engine_name, "t": float(state.get("t", 0.0)), "points": p[:600].round(5).tolist()}
+
+
+class CellularAutomataAdapter(SimulationEngineAdapter):
+    engine_name = "cellular_automata"
+
+    def init(self, config: dict, dsl: dict) -> dict:
+        c = dict(config or {})
+        n = int(c.get("grid_size", 80))
+        rng = np.random.default_rng(seed=7)
+        grid = (rng.uniform(0, 1, size=(n, n)) > 0.72).astype(np.int8)
+        return {"t": 0.0, "grid": grid, "config": c}
+
+    def step(self, state: dict, dt: float = 1.0) -> dict:
+        g = np.array(state.get("grid"), dtype=np.int8)
+        nsum = sum(np.roll(np.roll(g, i, axis=0), j, axis=1) for i in (-1, 0, 1) for j in (-1, 0, 1) if not (i == 0 and j == 0))
+        nxt = (((g == 1) & ((nsum == 2) | (nsum == 3))) | ((g == 0) & (nsum == 3))).astype(np.int8)
+        return {**state, "grid": nxt, "t": float(state.get("t", 0.0)) + dt}
+
+    def snapshot(self, state: dict) -> dict:
+        g = np.array(state.get("grid"), dtype=np.int8)
+        return {"engine": self.engine_name, "t": float(state.get("t", 0.0)), "grid": g[:128, :128].tolist()}
+
+
+class ProceduralWorldGenerator:
+    """Minecraft-benzeri height-map / voxel yoğunluk üreticisi."""
+
+    def generate(self, size: int = 96, seed: int = 11) -> dict:
+        size = max(16, min(int(size), 256))
+        rng = np.random.default_rng(seed=seed)
+        x = np.linspace(-2.0, 2.0, size)
+        y = np.linspace(-2.0, 2.0, size)
+        xx, yy = np.meshgrid(x, y)
+        base = np.sin(xx * 2.1) + np.cos(yy * 1.7)
+        noise = rng.normal(0, 0.18, size=(size, size))
+        h = base + noise
+        h = (h - h.min()) / (h.max() - h.min() + 1e-12)
+        voxels = (h > 0.55).astype(np.int8)
+        return {"height_map": h.round(5).tolist(), "voxel_mask": voxels.tolist(), "size": size}
+
+
+class VisualizationStreamOrchestrator:
+    """Snapshot'ları renderer-agnostic frame paketlerine dönüştürür."""
+
+    def build_frame(self, snapshot: dict, renderer: str = "canvas") -> dict:
+        payload = {"renderer": renderer, "timestamp": time.time(), "snapshot": snapshot}
+        payload["delta_hint"] = {"kind": snapshot.get("engine", "generic"), "keys": sorted(list(snapshot.keys()))}
+        return payload
+
+
+class SimulationModelRegistry:
+    """Engine metadata + adaptör kayıt deposu."""
+
+    def __init__(self):
+        self.models = {}
+
+    def register(self, name: str, adapter: SimulationEngineAdapter, metadata: dict):
+        self.models[name] = {"adapter": adapter, "metadata": dict(metadata or {})}
+
+    def describe(self) -> list:
+        return [{"name": n, **row.get("metadata", {})} for n, row in self.models.items()]
+
+    def get(self, name: str) -> dict:
+        return self.models.get(name, {})
+
+
+class NLPSimulationRouter:
+    """NLP + Q-learning hibrit seçici (engine/renderer/backend)."""
+
+    def __init__(self, registry: SimulationModelRegistry, alpha: float = 0.14, gamma: float = 0.86, epsilon: float = 0.1):
+        self.registry = registry
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.q = defaultdict(lambda: defaultdict(float))
+        self.episode = 0
+
+    def _semantic_tokens(self, text: str) -> set:
+        return set(re.findall(r"[a-zA-ZçğıöşüÇĞİÖŞÜ0-9_]+", (text or "").lower()))
+
+    def _state(self, question: str, dsl: dict, resources: dict) -> tuple:
+        toks = self._semantic_tokens(question)
+        return (
+            min(len(toks) // 6, 12),
+            min(int(dsl.get("temporal_score", 0)), 5),
+            min(int(dsl.get("spatial_score", 0)), 5),
+            1 if resources.get("has_cuda") else 0,
+            1 if dsl.get("uncertainty_score", 0) > 0 else 0,
+        )
+
+    def _candidate_actions(self) -> list:
+        renderers = ["ascii", "canvas", "webgl", "svg"]
+        backends = ["cpu", "wasm", "gpu", "remote"]
+        actions = []
+        for item in self.registry.describe():
+            engine = item.get("name")
+            tags = set(item.get("tags", []))
+            for renderer in renderers:
+                if renderer == "webgl" and "high_dim" not in tags and "field" not in tags:
+                    continue
+                for backend in backends:
+                    actions.append((engine, renderer, backend))
+        return actions
+
+    def _action_score(self, action: tuple, question: str, dsl: dict) -> float:
+        engine, renderer, backend = action
+        item = self.registry.get(engine)
+        meta = item.get("metadata", {})
+        q_toks = self._semantic_tokens(question)
+        tag_toks = set(meta.get("tags", []))
+        overlap = len(q_toks & tag_toks)
+        density = float(dsl.get("operator_density", 0.0))
+        temporal = float(dsl.get("temporal_score", 0.0))
+
+        score = 0.5 + overlap * 0.18 + temporal * (0.06 if engine in {"pde", "particle", "cellular_automata"} else 0.03)
+        if density > 0.02 and engine == "pde":
+            score += 0.22
+        if renderer == "ascii":
+            score -= 0.12
+        if backend == "gpu" and "high_dim" in tag_toks:
+            score += 0.2
+        return score
+
+    def route(self, question: str, dsl: dict, backend_info: dict) -> dict:
+        actions = self._candidate_actions()
+        if not actions:
+            return {"engine": "pde", "renderer": "canvas", "backend": "cpu", "reward": 0.0}
+        state = self._state(question, dsl, backend_info.get("resources", {}))
+        if random.random() < self.epsilon or not self.q[state]:
+            action = max(actions, key=lambda a: self._action_score(a, question, dsl))
+        else:
+            action = max(self.q[state], key=self.q[state].get)
+
+        reward = self._action_score(action, question, dsl)
+        current = self.q[state].get(action, 0.0)
+        next_best = max(self.q[state].values()) if self.q[state] else 0.0
+        self.q[state][action] = current + self.alpha * (reward + self.gamma * next_best - current)
+        self.episode += 1
+
+        return {"engine": action[0], "renderer": action[1], "backend": action[2], "reward": round(float(reward), 4), "state": state, "episode": self.episode}
+
+
+class SimulationRuntimeCoordinator:
+    """DSL → router → backend → adapter yürütme koordinatörü."""
+
+    def __init__(self, dsl_parser: PhysicsCompositionDSLParser, sandbox: SimulationSandboxManager,
+                 backend: ComputeBackendOrchestrator, registry: SimulationModelRegistry,
+                 router: NLPSimulationRouter, streamer: VisualizationStreamOrchestrator):
+        self.dsl_parser = dsl_parser
+        self.sandbox = sandbox
+        self.backend = backend
+        self.registry = registry
+        self.router = router
+        self.streamer = streamer
+
+    def build_plan(self, question: str, base_config: dict = None) -> dict:
+        dsl = self.dsl_parser.parse(question)
+        safe_cfg = self.sandbox.clamp(base_config or {})
+        complexity = 1.0 + 0.15 * len(dsl.get("components", [])) + float(dsl.get("operator_density", 0.0)) * 12
+        backend_info = self.backend.choose_backend({"complexity": complexity, "realtime_weight": 0.4 + min(dsl.get("temporal_score", 0), 6) * 0.08, "frame_budget_ms": 33})
+        route = self.router.route(question, dsl, backend_info)
+        world_hint = {}
+        if any(c in dsl.get("components", []) for c in ["spatial_field", "particle_dynamics"]):
+            world_hint = ProceduralWorldGenerator().generate(size=safe_cfg.get("grid_size", 64))
+        return {"dsl": dsl, "config": safe_cfg, "backend": backend_info, "route": route, "world_hint": world_hint}
+
+    def execute_preview(self, plan: dict, preview_steps: int = 12) -> dict:
+        route = plan.get("route", {})
+        engine_name = route.get("engine", "pde")
+        model_row = self.registry.get(engine_name)
+        adapter = model_row.get("adapter") or SimulationEngineAdapter()
+        cfg = plan.get("config", {})
+        dsl = plan.get("dsl", {})
+        state = adapter.init(cfg, dsl)
+        dt = float(cfg.get("dt", 0.05))
+        frames = []
+        for _ in range(max(1, min(int(preview_steps), 40))):
+            state = adapter.step(state, dt)
+            snap = adapter.snapshot(state)
+            frames.append(self.streamer.build_frame(snap, route.get("renderer", "canvas")))
+        return {"engine": engine_name, "renderer": route.get("renderer", "canvas"), "backend": route.get("backend", "cpu"), "frames": frames, "last_snapshot": frames[-1]["snapshot"] if frames else {}}
+
+
+# Global adaptive simulation stack
+_sim_dsl_parser = PhysicsCompositionDSLParser()
+_sim_sandbox = SimulationSandboxManager()
+_sim_backend = ComputeBackendOrchestrator()
+_sim_registry = SimulationModelRegistry()
+_sim_registry.register("pde", PDEEngineAdapter(), {"tags": ["pde", "diffusion", "field", "high_dim", "mesh"]})
+_sim_registry.register("particle", ParticleEngineAdapter(), {"tags": ["particle", "nbody", "gravity", "collision", "high_dim"]})
+_sim_registry.register("cellular_automata", CellularAutomataAdapter(), {"tags": ["cellular", "automata", "grid", "discrete"]})
+_sim_router = NLPSimulationRouter(_sim_registry)
+_sim_streamer = VisualizationStreamOrchestrator()
+_sim_runtime = SimulationRuntimeCoordinator(_sim_dsl_parser, _sim_sandbox, _sim_backend, _sim_registry, _sim_router, _sim_streamer)
+
+
+
 class PlannerLearningMemory:
     """
     Planlayıcı için hafızalı öğrenen scorer.
@@ -16913,7 +17595,11 @@ def solve():
         symbolic_bypass=symbolic_bypass,
     )
 
-    # ── 5. ASCII render ───────────────────────────────────────────────────────
+    # ── 5. Çözüm normalizasyonu (negatif/sayı-sembolik/birim) ───────────────
+    sol_data = _global_num_unit_normalizer.normalize_solution_payload(sol_data)
+    sol_data = _global_arith_scorer.audit_solution(sol_data)
+
+    # ── 6. ASCII render ───────────────────────────────────────────────────────
     ascii_out = engine.render(layout, sol_data)
     q_box = engine.q_info_box(layout, features, adjusted_reward, q_vals, router.episode)
     sem_box = _build_sem_box(signals, sol_data)
@@ -16964,6 +17650,10 @@ def solve():
                 if isinstance(graph_payload, dict)
                 else None
             ),
+            "arithmetic_accuracy": float(sol_data.get("_arithmetic_accuracy", 0.0)),
+            "arithmetic_grade": str(sol_data.get("_arithmetic_grade", "D")),
+            "arithmetic_step_scores": sol_data.get("_arithmetic_step_scores", []),
+            "arithmetic_notes": sol_data.get("_arithmetic_notes", []),
         }
     )
 
@@ -18091,6 +18781,30 @@ class RootOrchestrator:
         self._log_phase("INTENT CLASSIFIER", intent)
 
         # ────────────────────────────────────────────────────────────────────
+        # FAZA 2.5: NLP-TABANLI SİMÜLASYON/ÇİZİM PLANLAYICI
+        # ────────────────────────────────────────────────────────────────────
+        sim_runtime = components.get("simulation_runtime")
+        simulation_plan = {}
+        simulation_preview = {}
+        if sim_runtime:
+            try:
+                simulation_plan = sim_runtime.build_plan(
+                    question,
+                    {"steps": 180, "grid_size": 80, "particles": 800, "dt": 0.03},
+                )
+                simulation_preview = sim_runtime.execute_preview(simulation_plan, preview_steps=10)
+                self._log_phase(
+                    "SIMULATION ROUTER",
+                    {
+                        "engine": simulation_preview.get("engine"),
+                        "renderer": simulation_preview.get("renderer"),
+                        "backend": simulation_preview.get("backend"),
+                    },
+                )
+            except Exception as e:
+                self._log_phase("SIMULATION ROUTER", {"error": str(e)[:120]})
+
+        # ────────────────────────────────────────────────────────────────────
         # FAZA 3: SEMANTIC ABSTRACTION — Dependency + Constraint Extraction
         # ────────────────────────────────────────────────────────────────────
         semantic_constraints = sem.build_constraint_block(signals)
@@ -18441,6 +19155,10 @@ class RootOrchestrator:
         # ────────────────────────────────────────────────────────────────────
         success = len(final_violations) == 0 and completeness_score >= 0.8
 
+        if current_sol_data:
+            current_sol_data = _global_num_unit_normalizer.normalize_solution_payload(current_sol_data)
+            current_sol_data = _global_arith_scorer.audit_solution(current_sol_data)
+
         result = {
             "success": success,
             "final_sol_data": current_sol_data or {},
@@ -18461,6 +19179,8 @@ class RootOrchestrator:
             "signals": signals,
             "math_ast": math_ast,
             "chosen_solver": chosen_solver,
+            "simulation_plan": simulation_plan,
+            "simulation_preview": simulation_preview,
         }
 
         if explanation_engine:
@@ -18639,6 +19359,7 @@ def solve_orchestrated():
             _explanation_engine if "ExplanationGraphEngine" in globals() else None
         ),
         "eq_universe": eq_universe if "eq_universe" in globals() else None,
+        "simulation_runtime": _sim_runtime if "_sim_runtime" in globals() else None,
     }
 
     # ROOT ORCHESTRATOR çalıştır
@@ -18647,6 +19368,8 @@ def solve_orchestrated():
 
     # ASCII render (mevcut engine kullan)
     sol_data = result.get("final_sol_data", {})
+    sol_data = _global_num_unit_normalizer.normalize_solution_payload(sol_data)
+    sol_data = _global_arith_scorer.audit_solution(sol_data)
     layout = sol_data.get("layout", "default")
     ascii_out = (
         engine.render(layout, sol_data) if "engine" in globals() else str(sol_data)
@@ -18673,6 +19396,12 @@ def solve_orchestrated():
             "intent": features.get("intent", "?"),
             "reward": adjusted_reward,
             "q_vals": {str(k): float(v) for k, v in (q_vals or {}).items()},
+            "simulation_plan": result.get("simulation_plan", {}),
+            "simulation_preview": result.get("simulation_preview", {}),
+            "arithmetic_accuracy": float(sol_data.get("_arithmetic_accuracy", 0.0)),
+            "arithmetic_grade": str(sol_data.get("_arithmetic_grade", "D")),
+            "arithmetic_step_scores": sol_data.get("_arithmetic_step_scores", []),
+            "arithmetic_notes": sol_data.get("_arithmetic_notes", []),
         }
     )
 
