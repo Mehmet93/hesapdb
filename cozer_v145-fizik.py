@@ -37,6 +37,17 @@ from dataclasses import dataclass
 from typing import Optional
 from decimal import Decimal, getcontext, InvalidOperation
 import numpy as np
+import base64
+
+try:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    _MATPLOTLIB_OK = True
+except Exception:
+    _MATPLOTLIB_OK = False
 
 try:
     import torch
@@ -14838,9 +14849,16 @@ body::after {
   font-size:.66rem; color:var(--green3); letter-spacing:.1em; text-transform:uppercase;
 }
 #graph-wrap { flex:1; padding:10px; }
-#graph-canvas {
+#graph-image {
   width:100%; height:100%; background:#000; border:1px solid #123; border-radius:4px;
-  box-shadow: inset 0 0 30px #00e67611;
+  box-shadow: inset 0 0 36px #00e67614, 0 0 20px #00e67612;
+  object-fit:contain;
+}
+#graph-fallback {
+  width:100%; height:100%;
+  display:flex; align-items:center; justify-content:center;
+  border:1px dashed #1b4f1b; border-radius:4px; color:var(--green3);
+  background:#000; font-size:.7rem; text-transform:uppercase; letter-spacing:.08em;
 }
 
 /* Mobile */
@@ -15015,7 +15033,8 @@ body::after {
     <div id="graph-panel">
       <div id="graph-head">NLP Graph Automatı · Canlı Eğri</div>
       <div id="graph-wrap">
-        <canvas id="graph-canvas" width="560" height="320"></canvas>
+        <img id="graph-image" alt="Matplotlib grafik görünümü" />
+        <div id="graph-fallback">Matplotlib grafik bekleniyor…</div>
       </div>
     </div>
 
@@ -15141,6 +15160,7 @@ createApp({
       searchLoading: false,
       searchResult: null,
       graphData: null,
+      graphImage: '',
     };
   },
 
@@ -15238,7 +15258,8 @@ createApp({
         this.output       = data.ascii;
         this.lastResult   = data;   // PDF için sakla
         this.graphData    = data.graph_data || null;
-        this.$nextTick(() => this.renderGraph(this.graphData));
+        this.graphImage   = data.graph_image || '';
+        this.$nextTick(() => this.renderGraph(this.graphData, this.graphImage));
 
         // Stats güncelle
         this.stats = { layout: data.layout, reward: data.reward, elapsed: elapsed + 's', intent: data.intent, episode: data.episode };
@@ -15278,7 +15299,8 @@ createApp({
       this.searchQuery = '';
       this.lastResult  = null;
       this.graphData   = null;
-      this.$nextTick(() => this.renderGraph(null));
+      this.graphImage  = '';
+      this.$nextTick(() => this.renderGraph(null, ''));
       this.stats       = { layout: '—', reward: '—', elapsed: '—', intent: '—', episode: this.stats.episode };
       ['st-route','st-reward','st-intent'].forEach(id => {
         document.getElementById(id).textContent = '—';
@@ -15476,95 +15498,21 @@ createApp({
     },
 
 
-    renderGraph(payload) {
-      const canvas = document.getElementById('graph-canvas');
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width, h = canvas.height;
-      const theme = (payload && payload.theme) || { bg:'#000', grid:'#093', curve:'#00e676', curve2:'#69ff47', text:'#94ffb5' };
-      const mode = (payload && payload.render_mode) || { coord:'cartesian', style:'smooth', trajectory:'raw', id:'g00' };
+    renderGraph(payload, imageData = '') {
+      const img = document.getElementById('graph-image');
+      const fallback = document.getElementById('graph-fallback');
+      if (!img || !fallback) return;
 
-      ctx.fillStyle = theme.bg;
-      ctx.fillRect(0, 0, w, h);
-
-      // ── Arka plan ızgarası (siyah zemin, yeşil ton) ─────────────────────
-      ctx.strokeStyle = theme.grid;
-      ctx.lineWidth = 1;
-      for (let x = 20; x < w; x += 40) {
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+      const src = imageData || (payload && payload.image_data) || '';
+      if (src) {
+        img.src = src;
+        img.style.display = 'block';
+        fallback.style.display = 'none';
+      } else {
+        img.removeAttribute('src');
+        img.style.display = 'none';
+        fallback.style.display = 'flex';
       }
-      for (let y = 20; y < h; y += 40) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-      }
-
-      // Polar referans halkaları
-      if (mode.coord === 'polar') {
-        const cx = w * 0.5, cy = h * 0.5;
-        for (let r = 30; r < Math.min(w, h) * 0.45; r += 28) {
-          ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
-        }
-      }
-
-      const curve = (payload && payload.curve) ? payload.curve : [];
-      if (curve.length >= 2) {
-        ctx.strokeStyle = theme.curve;
-        ctx.lineWidth = mode.style === 'pulse' ? 3 : 2;
-        if (mode.style === 'dashed') ctx.setLineDash([6, 4]);
-        else ctx.setLineDash([]);
-
-        const points = curve.map(p => {
-          if (mode.coord === 'polar') {
-            const cx = w * 0.5, cy = h * 0.5;
-            const maxR = Math.min(w, h) * 0.42;
-            const r = (p.radius || 0.5) * maxR;
-            const t = (p.theta || 0) - Math.PI / 2;
-            return { x: cx + Math.cos(t) * r, y: cy + Math.sin(t) * r, v: p.v };
-          }
-          if (mode.coord === 'grid') {
-            const gx = 20 + (w - 40) * (p.xn || 0);
-            const gy = 20 + (h - 40) * (1 - (p.yn || 0));
-            const sx = Math.round(gx / 20) * 20;
-            const sy = Math.round(gy / 20) * 20;
-            return { x: sx, y: sy, v: p.v };
-          }
-          return { x: p.x, y: p.y, v: p.v };
-        });
-
-        if (mode.style === 'bars') {
-          ctx.fillStyle = theme.curve + '88';
-          points.forEach(p => {
-            ctx.fillRect(p.x - 4, p.y, 8, h - 20 - p.y);
-          });
-        } else {
-          ctx.beginPath();
-          ctx.moveTo(points[0].x, points[0].y);
-          for (let i = 1; i < points.length; i++) {
-            const p0 = points[i - 1], p1 = points[i];
-            if (mode.style === 'scatter') {
-              ctx.moveTo(p1.x, p1.y);
-            } else {
-              const mx = (p0.x + p1.x) / 2;
-              ctx.quadraticCurveTo(mx, p0.y, p1.x, p1.y);
-            }
-          }
-          if (mode.style !== 'scatter') ctx.stroke();
-        }
-
-        ctx.fillStyle = theme.curve2;
-        points.forEach((p, i) => {
-          const r = mode.style === 'pulse' ? (2.5 + (i % 3)) : 2.5;
-          ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
-        });
-      }
-
-      const labels = (payload && payload.labels) ? payload.labels.slice(0, 8) : ['hazır'];
-      const q = (payload && payload.quality) ? payload.quality : null;
-      ctx.fillStyle = theme.text;
-      ctx.font = '12px JetBrains Mono';
-      labels.forEach((lb, i) => {
-        ctx.fillText('• ' + lb, 12, 18 + i * 14);
-      });
-      ctx.fillText(`mode:${mode.id} ${mode.coord}/${mode.style} · catalog:${(payload && payload.mode_catalog_size) || 0}`, 12, h - 8);
     },
 
 
@@ -16513,6 +16461,92 @@ _graph_agent = GraphSimulationAgent()
 def _build_graph_automaton_payload(question: str, sol_data: dict, width: int = 560, height: int = 320) -> dict:
     return _graph_agent.build_payload(question, sol_data, width, height)
 
+
+def _render_matplotlib_graph_base64(payload: dict) -> Optional[str]:
+    """
+    Graph payload'unu siyah arka plan + yeşil tonlu Matplotlib PNG'e çevirir.
+    Dönen değer: data:image/png;base64,... formatında URI (hata olursa None).
+    """
+    if not _MATPLOTLIB_OK or not isinstance(payload, dict):
+        return None
+    curve = payload.get("curve") or []
+    if len(curve) < 2:
+        return None
+
+    mode = payload.get("render_mode") or {}
+    theme = payload.get("theme") or {}
+    labels = (payload.get("labels") or [])[:8]
+
+    bg = theme.get("bg", "#050a0a")
+    grid = theme.get("grid", "#0f2a0f")
+    curve_col = theme.get("curve", "#00e676")
+    point_col = theme.get("curve2", "#69ff47")
+    text_col = theme.get("text", "#94ffb5")
+
+    fig, ax = plt.subplots(figsize=(8.6, 5.0), dpi=130)
+    try:
+        fig.patch.set_facecolor(bg)
+        ax.set_facecolor(bg)
+
+        x_vals = [float(p.get("x", 0.0)) for p in curve]
+        y_vals = [float(p.get("y", 0.0)) for p in curve]
+
+        line_style = "--" if mode.get("style") == "dashed" else "-"
+        line_width = 2.4 if mode.get("style") == "pulse" else 2.0
+
+        if mode.get("style") == "scatter":
+            ax.scatter(x_vals, y_vals, s=28, c=point_col, alpha=0.9, edgecolors="none")
+        elif mode.get("style") == "bars":
+            bar_w = max(8.0, (max(x_vals) - min(x_vals)) / max(len(x_vals) * 2, 1))
+            ax.bar(x_vals, y_vals, color=curve_col, alpha=0.55, width=bar_w, edgecolor="none")
+            ax.plot(x_vals, y_vals, color=point_col, linewidth=1.2, alpha=0.9)
+        else:
+            ax.plot(x_vals, y_vals, color=curve_col, linewidth=line_width, linestyle=line_style, alpha=0.95)
+            ax.scatter(x_vals, y_vals, s=16, c=point_col, alpha=0.92, edgecolors="none")
+
+        ax.grid(True, color=grid, alpha=0.55, linewidth=0.8)
+        for spine in ax.spines.values():
+            spine.set_color(grid)
+            spine.set_linewidth(1.0)
+        ax.tick_params(colors=text_col, labelsize=8)
+        ax.set_title("NLP Graph Automatı · Matplotlib", color=text_col, fontsize=10, pad=8)
+
+        if labels:
+            label_str = " • ".join(str(x) for x in labels[:5])
+            ax.text(
+                0.01,
+                0.985,
+                label_str,
+                transform=ax.transAxes,
+                va="top",
+                ha="left",
+                color=text_col,
+                fontsize=8,
+                alpha=0.92,
+            )
+
+        mode_id = mode.get("id", "g00")
+        coord = mode.get("coord", "cartesian")
+        style = mode.get("style", "smooth")
+        catalog_size = payload.get("mode_catalog_size", 0)
+        ax.text(
+            0.01,
+            0.02,
+            f"mode:{mode_id} {coord}/{style} · catalog:{catalog_size}",
+            transform=ax.transAxes,
+            color=text_col,
+            fontsize=8,
+            alpha=0.86,
+        )
+
+        fig.tight_layout(pad=1.0)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", facecolor=bg, edgecolor=bg)
+        png_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{png_b64}"
+    finally:
+        plt.close(fig)
+
     def _save(self):
         try:
             with open(self.MEMORY_PATH, "wb") as f:
@@ -16892,6 +16926,9 @@ def solve():
         full_ascii = ascii_out + "\n\n" + q_box + "\n\n" + sem_box + "\n\n" + solver_box
 
     graph_payload = _build_graph_automaton_payload(question, sol_data)
+    graph_image = _render_matplotlib_graph_base64(graph_payload)
+    if isinstance(graph_payload, dict):
+        graph_payload["image_data"] = graph_image
 
     return jsonify(
         {
@@ -16921,6 +16958,7 @@ def solve():
             "steps": sol_data.get("steps", []),
             "formula": str(sol_data.get("formula", "")),
             "graph_data": graph_payload,
+            "graph_image": graph_image,
             "graph_score": (
                 graph_payload.get("quality", {}).get("score")
                 if isinstance(graph_payload, dict)
