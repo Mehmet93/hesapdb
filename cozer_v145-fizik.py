@@ -15483,7 +15483,6 @@ createApp({
       const w = canvas.width, h = canvas.height;
       const theme = (payload && payload.theme) || { bg:'#000', grid:'#093', curve:'#00e676', curve2:'#69ff47', text:'#94ffb5' };
       const mode = (payload && payload.render_mode) || { coord:'cartesian', style:'smooth', trajectory:'raw', id:'g00' };
-      const axes = (payload && payload.axes) || null;
 
       ctx.fillStyle = theme.bg;
       ctx.fillRect(0, 0, w, h);
@@ -15496,35 +15495,6 @@ createApp({
       }
       for (let y = 20; y < h; y += 40) {
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-      }
-
-      // Bilimsel eksenler (gerçek sayı doğrusu referansı)
-      if (axes && Number.isFinite(axes.xmin) && Number.isFinite(axes.xmax)) {
-        const mapX = v => 20 + (w - 40) * ((v - axes.xmin) / Math.max(1e-9, (axes.xmax - axes.xmin)));
-        const mapY = v => h - 20 - (h - 40) * ((v - axes.ymin) / Math.max(1e-9, (axes.ymax - axes.ymin)));
-        const xAxisY = mapY(axes.y0 || 0);
-        const yAxisX = mapX(axes.x0 || 0);
-
-        ctx.strokeStyle = '#14ff9c';
-        ctx.lineWidth = 1.4;
-        ctx.beginPath(); ctx.moveTo(20, xAxisY); ctx.lineTo(w - 20, xAxisY); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(yAxisX, 20); ctx.lineTo(yAxisX, h - 20); ctx.stroke();
-
-        ctx.fillStyle = theme.text;
-        ctx.font = '10px JetBrains Mono';
-        const ticks = 6;
-        for (let i = 0; i <= ticks; i++) {
-          const xv = axes.xmin + (axes.xmax - axes.xmin) * (i / ticks);
-          const px = mapX(xv);
-          ctx.beginPath(); ctx.moveTo(px, xAxisY - 4); ctx.lineTo(px, xAxisY + 4); ctx.stroke();
-          ctx.fillText(xv.toFixed(1), px - 10, Math.min(h - 6, xAxisY + 14));
-        }
-        for (let i = 0; i <= ticks; i++) {
-          const yv = axes.ymin + (axes.ymax - axes.ymin) * (i / ticks);
-          const py = mapY(yv);
-          ctx.beginPath(); ctx.moveTo(yAxisX - 4, py); ctx.lineTo(yAxisX + 4, py); ctx.stroke();
-          ctx.fillText(yv.toFixed(1), Math.max(2, yAxisX + 6), py - 2);
-        }
       }
 
       // Polar referans halkaları
@@ -15560,7 +15530,7 @@ createApp({
           return { x: p.x, y: p.y, v: p.v };
         });
 
-        if (mode.style === 'bars' && !(payload?.meta?.expr_mode)) {
+        if (mode.style === 'bars') {
           ctx.fillStyle = theme.curve + '88';
           points.forEach(p => {
             ctx.fillRect(p.x - 4, p.y, 8, h - 20 - p.y);
@@ -15594,8 +15564,7 @@ createApp({
       labels.forEach((lb, i) => {
         ctx.fillText('• ' + lb, 12, 18 + i * 14);
       });
-      const qualityText = q ? ` · graph_score:${q.score}` : '';
-      ctx.fillText(`mode:${mode.id} ${mode.coord}/${mode.style} · catalog:${(payload && payload.mode_catalog_size) || 0}${qualityText}`, 12, h - 8);
+      ctx.fillText(`mode:${mode.id} ${mode.coord}/${mode.style} · catalog:${(payload && payload.mode_catalog_size) || 0}`, 12, h - 8);
     },
 
 
@@ -16407,119 +16376,7 @@ class GraphSimulationAgent:
                 continue
         return vals
 
-    def _extract_expression(self, question: str, sol_data: dict) -> str:
-        """
-        Soru/çözüm içinden çizilebilir ifadeyi çıkar:
-          - y = f(x)
-          - f(x) = 0  → y = f(x)
-        """
-        text = " ".join(
-            [
-                str(question or ""),
-                str(sol_data.get("formula", "") or ""),
-                str(sol_data.get("answer", "") or ""),
-            ]
-        )
-        text = text.replace("−", "-").replace("^", "**")
-
-        def _clean_expr(raw: str) -> str:
-            # Formel olmayan kelimeleri ayır: sadece matematiksel karakter kümesi
-            keep = re.findall(r"[0-9xX\(\)\+\-\*/\.\s\*]+", raw or "")
-            expr = "".join(keep).strip()
-            expr = re.sub(r"\s+", "", expr)
-            return expr
-
-        # 1) y = f(x)
-        for m in re.finditer(r"\by\s*=\s*([^\n,;]+)", text, flags=re.IGNORECASE):
-            cand = _clean_expr(m.group(1))
-            if "x" in cand.lower() and re.search(r"[\+\-\*/]", cand):
-                return cand
-
-        # 2) f(x)=0 biçimi
-        for m in re.finditer(r"([^=\n,;:]{1,80})=\s*0\b", text):
-            cand = _clean_expr(m.group(1))
-            if "x" in cand.lower() and re.search(r"[\+\-\*/]", cand):
-                return cand
-
-        # 3) metin içinde serbest ifade adayları
-        for tok in re.findall(r"[0-9xX\(\)\+\-\*/\.]{5,}", text):
-            if "x" in tok.lower() and re.search(r"[\+\-\*/]", tok):
-                return tok
-        return ""
-
-    def _sample_expression_series(self, expr: str) -> tuple[list, dict]:
-        """
-        İfadeyi gerçek sayı doğrusu üzerinde örnekler.
-        Dönüş: (series, axes_meta)
-        """
-        if not expr:
-            return [], {}
-
-        xmin, xmax = -10.0, 10.0
-        n = 121
-        xs = [xmin + i * (xmax - xmin) / (n - 1) for i in range(n)]
-        ys = []
-
-        if _SYMPY_OK:
-            try:
-                x = sp.symbols("x")
-                sx = sp.sympify(expr, locals={"x": x, "X": x})
-                f = sp.lambdify(x, sx, "math")
-                for xv in xs:
-                    try:
-                        yv = float(f(xv))
-                        if math.isfinite(yv):
-                            ys.append((xv, yv))
-                    except Exception:
-                        continue
-            except Exception:
-                ys = []
-
-        if not ys:
-            # Sympy yoksa / parse başarısızsa güvenli eval fallback
-            safe_env = {
-                "sin": math.sin,
-                "cos": math.cos,
-                "tan": math.tan,
-                "exp": math.exp,
-                "log": math.log,
-                "sqrt": math.sqrt,
-                "pi": math.pi,
-                "e": math.e,
-                "abs": abs,
-            }
-            for xv in xs:
-                try:
-                    yv = eval(expr, {"__builtins__": {}}, {**safe_env, "x": xv, "X": xv})
-                    yv = float(yv)
-                    if math.isfinite(yv):
-                        ys.append((xv, yv))
-                except Exception:
-                    continue
-
-        if len(ys) < 3:
-            return [], {}
-
-        # Aykırı değerleri kırp (bilimsel eksen için IQR-benzeri)
-        raw_y = [y for _, y in ys]
-        y_sorted = sorted(raw_y)
-        q1 = y_sorted[len(y_sorted) // 4]
-        q3 = y_sorted[(3 * len(y_sorted)) // 4]
-        iqr = max(1e-9, q3 - q1)
-        lo, hi = q1 - 4 * iqr, q3 + 4 * iqr
-        ys = [(xv, max(lo, min(hi, yv))) for xv, yv in ys]
-
-        series = [{"x_real": xv, "y_real": yv} for xv, yv in ys]
-        axes = {"xmin": xmin, "xmax": xmax, "ymin": lo, "ymax": hi, "source": "expression"}
-        return series, axes
-
     def _series_from_solution(self, question: str, sol_data: dict) -> tuple:
-        expr = self._extract_expression(question, sol_data)
-        expr_series, expr_axes = self._sample_expression_series(expr)
-        if expr_series:
-            labels = [f"expr: y={expr}", "koordinat sistemi", "gerçek sayı doğrusu"]
-            return expr_series, labels, expr_axes
-
         series = []
         steps = sol_data.get("steps") or []
         for i, st in enumerate(steps, 1):
@@ -16561,15 +16418,14 @@ class GraphSimulationAgent:
                 break
         if not labels:
             labels = ["düğüm", "olasılık", "çıkarım"]
-        return series, labels, {}
+        return series, labels
 
     def _state(self, question: str, sol_data: dict) -> tuple:
         q = (question or "").lower()
         has_graph_kw = 1 if re.search(r"graf|graph|çiz|curve|parab|polar|ızgara|grid|koordinat", q) else 0
-        has_expr_kw = 1 if re.search(r"x|y\s*=|\^|parabol|fonksiyon|equation|denklem", q) else 0
         n_steps = min(len(sol_data.get("steps") or []), 12)
         intent = str(sol_data.get("type", "general"))
-        return (intent, n_steps // 3, has_graph_kw, has_expr_kw)
+        return (intent, n_steps // 3, has_graph_kw)
 
     def _pick_mode(self, state: tuple) -> dict:
         if random.random() < self.epsilon or not self.q_table[state]:
@@ -16588,14 +16444,6 @@ class GraphSimulationAgent:
             r += 0.7
         if len(series) <= 4 and mode["style"] in {"bars", "pulse"}:
             r += 0.6
-        # Eğri çizim niyeti varsa sürekli çizimi güçlendir
-        if re.search(r"eğri|curve|fonksiyon|parabol|koordinat|real|gerçek sayı", q):
-            if mode["style"] in {"smooth", "dashed"}:
-                r += 1.8
-            if mode["style"] in {"bars", "pulse"}:
-                r -= 1.2
-            if mode["coord"] == "cartesian":
-                r += 1.0
         return r
 
     def _update(self, state: tuple, mode_id: str, reward: float):
@@ -16606,57 +16454,14 @@ class GraphSimulationAgent:
         if self.episode % 5 == 0:
             self._save()
 
-    def _quality_score(self, curve: list, axes: dict, expr_mode: bool) -> dict:
-        """
-        Soru şablonundan bağımsız grafik kalite puanı.
-        """
-        if not curve:
-            return {"score": 0.0, "components": {"points": 0, "coverage": 0, "continuity": 0, "axes": 0}}
-
-        pts = len(curve)
-        points_score = min(1.0, pts / 80.0)
-
-        xs = [p["x"] for p in curve]
-        ys = [p["y"] for p in curve]
-        x_cov = (max(xs) - min(xs)) / max(1.0, axes.get("xmax", 1) - axes.get("xmin", 0))
-        y_cov = (max(ys) - min(ys)) / max(1.0, axes.get("ymax", 1) - axes.get("ymin", 0))
-        coverage_score = min(1.0, 0.5 * (abs(x_cov) + abs(y_cov)))
-
-        jumps = []
-        for i in range(1, len(curve)):
-            dx = curve[i]["xn"] - curve[i - 1]["xn"]
-            dy = curve[i]["yn"] - curve[i - 1]["yn"]
-            jumps.append(math.sqrt(dx * dx + dy * dy))
-        mean_jump = sum(jumps) / max(1, len(jumps))
-        continuity_score = max(0.0, 1.0 - min(1.0, mean_jump * 8.0))
-
-        has_axes = 1.0 if all(k in axes for k in ("xmin", "xmax", "ymin", "ymax")) else 0.0
-        axes_score = has_axes * (1.0 if axes.get("xmax", 0) > axes.get("xmin", 0) else 0.0)
-
-        base = 0.26 * points_score + 0.29 * coverage_score + 0.27 * continuity_score + 0.18 * axes_score
-        if expr_mode:
-            base = min(1.0, base + 0.08)
-        return {
-            "score": round(base * 100, 2),
-            "components": {
-                "points": round(points_score, 4),
-                "coverage": round(coverage_score, 4),
-                "continuity": round(continuity_score, 4),
-                "axes": round(axes_score, 4),
-            },
-        }
-
     def build_payload(self, question: str, sol_data: dict, width: int, height: int) -> dict:
-        series, labels, axes_meta = self._series_from_solution(question, sol_data)
+        series, labels = self._series_from_solution(question, sol_data)
         state = self._state(question, sol_data)
         mode = self._pick_mode(state)
         reward = self._reward(mode, series, question)
         self._update(state, mode["id"], reward)
 
-        if series and "y_real" in series[0]:
-            ys = [p["y_real"] for p in series]
-        else:
-            ys = [p["y"] for p in series] if series else [0.0, 1.0]
+        ys = [p["y"] for p in series] if series else [0.0, 1.0]
         ymin, ymax = min(ys), max(ys)
         if abs(ymax - ymin) < 1e-12:
             ymax = ymin + 1.0
@@ -16664,18 +16469,8 @@ class GraphSimulationAgent:
         curve = []
         n = max(len(series), 2)
         for idx, p in enumerate(series):
-            if "x_real" in p and "y_real" in p:
-                xmin = axes_meta.get("xmin", -10.0)
-                xmax = axes_meta.get("xmax", 10.0)
-                yn_min = axes_meta.get("ymin", ymin)
-                yn_max = axes_meta.get("ymax", ymax)
-                xn = (p["x_real"] - xmin) / max(1e-9, (xmax - xmin))
-                yn = (p["y_real"] - yn_min) / max(1e-9, (yn_max - yn_min))
-                val = p["y_real"]
-            else:
-                xn = idx / max(1, n - 1)
-                yn = (p["y"] - ymin) / (ymax - ymin)
-                val = p["y"]
+            xn = idx / max(1, n - 1)
+            yn = (p["y"] - ymin) / (ymax - ymin)
 
             if mode["trajectory"] == "symmetric":
                 xn = abs(2 * xn - 1)
@@ -16692,7 +16487,7 @@ class GraphSimulationAgent:
                 {
                     "x": round(x, 3),
                     "y": round(y, 3),
-                    "v": round(val, 6),
+                    "v": round(p["y"], 6),
                     "xn": round(xn, 6),
                     "yn": round(yn, 6),
                     "theta": round(theta, 6),
@@ -16708,31 +16503,7 @@ class GraphSimulationAgent:
             "labels": labels,
             "render_mode": mode,
             "mode_catalog_size": len(self.modes),
-            "axes": {
-                "xmin": float(axes_meta.get("xmin", 0.0)),
-                "xmax": float(axes_meta.get("xmax", max(1, n - 1))),
-                "ymin": float(axes_meta.get("ymin", ymin)),
-                "ymax": float(axes_meta.get("ymax", ymax)),
-                "x0": 0.0,
-                "y0": 0.0,
-            },
-            "meta": {
-                "ymin": ymin,
-                "ymax": ymax,
-                "points": len(curve),
-                "agent_episode": self.episode,
-                "expr_mode": bool(axes_meta.get("source") == "expression"),
-            },
-            "quality": self._quality_score(
-                curve=curve,
-                axes={
-                    "xmin": float(axes_meta.get("xmin", 0.0)),
-                    "xmax": float(axes_meta.get("xmax", max(1, n - 1))),
-                    "ymin": float(axes_meta.get("ymin", ymin)),
-                    "ymax": float(axes_meta.get("ymax", ymax)),
-                },
-                expr_mode=bool(axes_meta.get("source") == "expression"),
-            ),
+            "meta": {"ymin": ymin, "ymax": ymax, "points": len(curve), "agent_episode": self.episode},
         }
 
 
@@ -16742,6 +16513,23 @@ _graph_agent = GraphSimulationAgent()
 def _build_graph_automaton_payload(question: str, sol_data: dict, width: int = 560, height: int = 320) -> dict:
     return _graph_agent.build_payload(question, sol_data, width, height)
 
+    def _save(self):
+        try:
+            with open(self.MEMORY_PATH, "wb") as f:
+                pickle.dump({"weights": dict(self.weights), "episode": self.episode}, f)
+        except Exception:
+            pass
+
+    def features(self, text: str) -> dict:
+        t = (text or "").strip().lower()
+        toks = [x for x in re.findall(r"[a-zçğıöşü0-9]+", t) if x]
+        return {
+            "len": min(len(toks), 16),
+            "has_qmark": 1 if "?" in t else 0,
+            "has_numeric": 1 if re.search(r"\d", t) else 0,
+            "has_verb": 1 if re.search(r"(mi|mı|mu|mü|nedir|kaç|hangi|hesap|bul|çiz|göster)", t) else 0,
+            "has_meta_prefix": 1 if re.search(r"^(mekanlar|durumlar|states)\s*[:\-]", t) else 0,
+        }
 
 class PlannerLearningMemory:
     """
