@@ -4682,7 +4682,7 @@ class MathASTBuilder:
             if m:
                 try:
                     rows, cols = int(m.group(1)), int(m.group(2))
-                    if 2 <= rows <= 20 and 2 <= cols <= 20:
+                    if 2 <= rows <= 100 and 2 <= cols <= 100:
                         params["grid"] = [rows, cols]
                         break
                 except (IndexError, AttributeError):
@@ -4997,6 +4997,7 @@ class MarkovSolver:
             size = int(size_match.group(1))  # kare olduğunu varsay
         else:
             size = 5  # default
+        size = max(2, min(100, size))  # NxP olasılık matrisi için üst sınır 100x100
 
         # 2. Başlangıç konumu — metnin içinden (r, c) format
         start_match = re.search(r"\((\d+),\s*(\d+)\)", question)
@@ -9050,6 +9051,7 @@ class GameTheoryNLPExtractor:
             "players": [],
             "n_players": 0,
             "payoff_matrix": {},
+            "coalition_values": [],
             "n_rounds": 1,
             "ask_type": [],
             "step_target": None,
@@ -9084,6 +9086,7 @@ class GameTheoryNLPExtractor:
         result["players"] = self._extract_players(question, q)
         result["n_players"] = len(result["players"])
         result["payoff_matrix"] = self._extract_payoff(question, q)
+        result["coalition_values"] = self._extract_coalition_values(question)
         result["matrix_dim"], _ = self._extract_matrix_dim(
             question, q, result["players"]
         )
@@ -9329,6 +9332,36 @@ class GameTheoryNLPExtractor:
             payoff["T"] = 5
 
         return payoff
+
+    def _extract_coalition_values(self, question: str):
+        """
+        Kooperatif oyun değer fonksiyonu kalıplarını çıkarır.
+        Örnekler:
+          - v({1,2})=60
+          - v({A,B}) : 14.5
+          - v(∅)=0
+          - v(emptyset)=0
+        """
+        out = []
+        seen = set()
+        patt = re.compile(
+            r"v\s*\(\s*(?:\{([^}]*)\}|(∅|emptyset|boş\s*küme))\s*\)\s*[:=]\s*([+\-]?\d+(?:[.,]\d+)?)",
+            flags=re.IGNORECASE,
+        )
+        for m in patt.finditer(question):
+            members_raw = (m.group(1) or "").strip()
+            if m.group(2):
+                members = []
+            else:
+                toks = [t.strip() for t in re.split(r"\s*,\s*", members_raw) if t.strip()]
+                members = toks
+            val = float(m.group(3).replace(",", "."))
+            key = (tuple(sorted(members)), val)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"members": members, "value": val})
+        return out
 
     def _extract_matrix_dim(self, question, q, players):
         m = re.search(r"(\d+)\s*[x×]\s*(\d+)\s*(?:matri|tablo|grid)", q)
@@ -10274,27 +10307,76 @@ class _GameTheoryTheoremSuite:
 
     # ── 3. Shapley Değeri ────────────────────────────────────────────────────
     def _shapley(self, gt_params, sim_result, players, payoff):
-        n = len(players)
+        coalition_values = gt_params.get("coalition_values") or []
+        scores = sim_result.get("scores", {})
+        n_rounds = sim_result.get("n_rounds", 1)
 
-        # Kooperatif oyun: v(S) = |S| * R  (hep işbirliği)
-        # Shapley değeri: her oyuncunun marjinal katkısının ortalama beklentisi
-        # PD'de kooperatif değer fonksiyonu: v(S) = |S|*(|S|-1)/2 * R
-        # (her çift (C,C) → 2R alır, her oyuncu R alır)
+        # ── Genel koalisyon oyunu: v(S) girdi olarak verilmişse tam Shapley hesapla
+        if coalition_values:
+            coalition_map = {}
+            player_ids = set()
+            for row in coalition_values:
+                members = frozenset(str(m).strip() for m in row.get("members", []))
+                coalition_map[members] = float(row.get("value", 0.0))
+                player_ids.update(members)
+
+            if not player_ids:
+                inferred_n = int(gt_params.get("n_players", 0) or 0)
+                player_ids = {str(i) for i in range(1, inferred_n + 1)}
+            player_ids = sorted(player_ids)
+            n = len(player_ids)
+            fact_n = math.factorial(n) if n > 0 else 1
+
+            def v_set(s):
+                return float(coalition_map.get(frozenset(s), 0.0))
+
+            shapley_vals = {}
+            grand_value = v_set(player_ids)
+            for pid in player_ids:
+                others = [x for x in player_ids if x != pid]
+                phi = 0.0
+                for r in range(len(others) + 1):
+                    for comb in itertools.combinations(others, r):
+                        S = frozenset(comb)
+                        weight = (
+                            math.factorial(len(S))
+                            * math.factorial(n - len(S) - 1)
+                            / fact_n
+                        )
+                        phi += weight * (v_set(set(S) | {pid}) - v_set(S))
+                shapley_vals[f"Oyuncu {pid}"] = phi
+
+            return {
+                "name": "Shapley Değeri (Kooperatif Oyun Teorisi)",
+                "symbol": "φ",
+                "applies": True,
+                "result": " | ".join(
+                    f"φ({nm})={sv:.4g}" for nm, sv in shapley_vals.items()
+                ),
+                "explanation": (
+                    f"Koalisyon değer fonksiyonundan doğrudan hesaplandı (n={n}). "
+                    f"v(N)={grand_value:.4g}, Σφᵢ={sum(shapley_vals.values()):.4g}."
+                ),
+                "formula": (
+                    "φᵢ(v)=Σ_{S⊆N\\{i}} [|S|!(n-|S|-1)!/n!]·[v(S∪{i})-v(S)] "
+                    "| Eksik koalisyon değerleri 0 kabul edildi."
+                ),
+                "warning": None,
+            }
+
+        # ── Iterated-PD fallback: simetrik tam işbirliği varsayımı
+        n = len(players)
+        R = payoff.get("R", 3)
+
         def v(size):
-            # Tam işbirliği koalisyon değeri: her çift R+R kazanır
             return size * (size - 1) * R if size > 1 else 0
 
         shapley_vals = {}
-        # Her oyuncu için Shapley hesapla (simetrik oyun → eşit dağılım)
         total_val = v(n)
-        # Simetrik PD'de Shapley değeri eşit dağıtım:
         sv = total_val / n if n > 0 else 0
         for p in players:
             shapley_vals[p["name"]] = sv
 
-        # Gerçek simülasyon skorlarıyla karşılaştır
-        scores = sim_result.get("scores", {})
-        n_rounds = sim_result.get("n_rounds", 1)
         return {
             "name": "Shapley Değeri (Kooperatif Oyun Teorisi)",
             "symbol": "φ",
@@ -14582,7 +14664,7 @@ body::after {
 /* ── LAYOUT ── */
 #app {
   position:relative; z-index:1; display:grid;
-  grid-template-columns:320px 1fr; gap:0; height:calc(100vh - 48px);
+  grid-template-columns:320px minmax(0, 1fr) 420px; gap:0; height:calc(100vh - 48px);
 }
 
 /* ── SIDEBAR ── */
@@ -14709,8 +14791,23 @@ body::after {
 ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
 ::-webkit-scrollbar-thumb:hover { background:var(--green3); }
 
+
+#graph-panel {
+  background:#020707; border-left:1px solid var(--border);
+  display:flex; flex-direction:column; min-width:320px;
+}
+#graph-head {
+  padding:10px 14px; border-bottom:1px solid var(--border);
+  font-size:.66rem; color:var(--green3); letter-spacing:.1em; text-transform:uppercase;
+}
+#graph-wrap { flex:1; padding:10px; }
+#graph-canvas {
+  width:100%; height:100%; background:#000; border:1px solid #123; border-radius:4px;
+  box-shadow: inset 0 0 30px #00e67611;
+}
+
 /* Mobile */
-@media (max-width:768px) { #app { grid-template-columns:1fr; } #sidebar { display:none; } }
+@media (max-width:1100px) { #app { grid-template-columns:1fr; } #sidebar, #graph-panel { display:none; } }
 
 /* ── MODAL ── */
 .modal-overlay {
@@ -14878,6 +14975,13 @@ body::after {
 
     </div><!-- /main-panel -->
 
+    <div id="graph-panel">
+      <div id="graph-head">NLP Graph Automatı · Canlı Eğri</div>
+      <div id="graph-wrap">
+        <canvas id="graph-canvas" width="560" height="320"></canvas>
+      </div>
+    </div>
+
   </div><!-- /app grid -->
 
   <!-- BOTTOM STATUS -->
@@ -14999,6 +15103,7 @@ createApp({
       searchQueryWeb: '',    // Web arama sorgusu
       searchLoading: false,
       searchResult: null,
+      graphData: null,
     };
   },
 
@@ -15022,6 +15127,7 @@ createApp({
     }
     // Periyodik Q-state güncelleme
     setInterval(() => this.fetchQState(), 5000);
+    this.$nextTick(() => this.renderGraph(null));
   },
 
   methods: {
@@ -15094,6 +15200,8 @@ createApp({
         this.outputClass  = 'ok';
         this.output       = data.ascii;
         this.lastResult   = data;   // PDF için sakla
+        this.graphData    = data.graph_data || null;
+        this.$nextTick(() => this.renderGraph(this.graphData));
 
         // Stats güncelle
         this.stats = { layout: data.layout, reward: data.reward, elapsed: elapsed + 's', intent: data.intent, episode: data.episode };
@@ -15132,6 +15240,8 @@ createApp({
       this.activeId    = null;
       this.searchQuery = '';
       this.lastResult  = null;
+      this.graphData   = null;
+      this.$nextTick(() => this.renderGraph(null));
       this.stats       = { layout: '—', reward: '—', elapsed: '—', intent: '—', episode: this.stats.episode };
       ['st-route','st-reward','st-intent'].forEach(id => {
         document.getElementById(id).textContent = '—';
@@ -15327,6 +15437,54 @@ createApp({
         this.toast(`✗ ${label} indirilemedi: ${err.message}`, 'red');
       }
     },
+
+
+    renderGraph(payload) {
+      const canvas = document.getElementById('graph-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      const theme = (payload && payload.theme) || { bg:'#000', grid:'#093', curve:'#00e676', curve2:'#69ff47', text:'#94ffb5' };
+
+      ctx.fillStyle = theme.bg;
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = theme.grid;
+      ctx.lineWidth = 1;
+      for (let x = 20; x < w; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+      }
+      for (let y = 20; y < h; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+      }
+
+      const curve = (payload && payload.curve) ? payload.curve : [];
+      if (curve.length >= 2) {
+        ctx.strokeStyle = theme.curve;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(curve[0].x, curve[0].y);
+        for (let i = 1; i < curve.length; i++) {
+          const p0 = curve[i - 1], p1 = curve[i];
+          const cx = (p0.x + p1.x) / 2;
+          ctx.quadraticCurveTo(cx, p0.y, p1.x, p1.y);
+        }
+        ctx.stroke();
+
+        ctx.fillStyle = theme.curve2;
+        curve.forEach(p => {
+          ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+
+      const labels = (payload && payload.labels) ? payload.labels.slice(0, 8) : ['hazır'];
+      ctx.fillStyle = theme.text;
+      ctx.font = '12px JetBrains Mono';
+      labels.forEach((lb, i) => {
+        ctx.fillText('• ' + lb, 12, 18 + i * 14);
+      });
+    },
+
 
     toast(msg, type = 'green') {
       const t      = document.getElementById('toast');
@@ -16062,6 +16220,124 @@ def search():
         return jsonify({"status": "error", "message": f"Arama hatası: {str(e)}"}), 500
 
 
+
+
+def _build_graph_automaton_payload(question: str, sol_data: dict, width: int = 560, height: int = 320) -> dict:
+    """
+    NLP-tabanlı çizim otomatı için seri + düğüm verisi üretir.
+    Hardcoded konu/soru etiketleri yerine metin ve çözüm adımlarından dinamik çıkarım yapar.
+    """
+
+    def _extract_numbers(text: str) -> list:
+        vals = []
+        for raw in re.findall(r"-?\d+(?:\.\d+)?", text or ""):
+            try:
+                vals.append(float(raw))
+            except Exception:
+                continue
+        return vals
+
+    tokens = re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü]{3,}", question or "")
+    stop = {"veya", "sonra", "olan", "gibi", "then", "with", "from", "için", "soru", "question"}
+    labels = []
+    seen = set()
+    for t in tokens:
+        k = t.lower()
+        if k in stop or k in seen:
+            continue
+        seen.add(k)
+        labels.append(t)
+        if len(labels) >= 12:
+            break
+
+    series = []
+    steps = sol_data.get("steps") or []
+    for i, st in enumerate(steps, 1):
+        txt = " ".join([str(st.get("content", "")), str(st.get("formula", "")), str(st.get("result", ""))])
+        nums = _extract_numbers(txt)
+        if nums:
+            series.append({"x": i, "y": sum(nums) / max(len(nums), 1)})
+
+    if len(series) < 2:
+        pmap = sol_data.get("probabilities") or sol_data.get("posteriors") or {}
+        if isinstance(pmap, dict) and pmap:
+            for i, (_, v) in enumerate(pmap.items(), 1):
+                try:
+                    series.append({"x": i, "y": float(v)})
+                except Exception:
+                    continue
+
+    if len(series) < 2:
+        nums = _extract_numbers(str(sol_data.get("answer", "")) + " " + str(sol_data.get("explanation", "")))
+        if not nums:
+            nums = [0.0, 1.0]
+        for i, v in enumerate(nums[:24], 1):
+            series.append({"x": i, "y": float(v)})
+
+    ys = [p["y"] for p in series] if series else [0.0, 1.0]
+    ymin, ymax = min(ys), max(ys)
+    if abs(ymax - ymin) < 1e-12:
+        ymax = ymin + 1.0
+
+    curve = []
+    n = max(len(series), 2)
+    for idx, p in enumerate(series):
+        x = 20 + (width - 40) * (idx / max(1, n - 1))
+        y = height - 20 - ((p["y"] - ymin) / (ymax - ymin)) * (height - 40)
+        curve.append({"x": round(x, 3), "y": round(y, 3), "v": round(p["y"], 6)})
+
+    if not labels:
+        labels = ["düğüm", "olasılık", "çıkarım"]
+
+    return {
+        "theme": {"bg": "#050a0a", "grid": "#0f2a0f", "curve": "#00e676", "curve2": "#69ff47", "text": "#94ffb5"},
+        "width": width,
+        "height": height,
+        "curve": curve,
+        "labels": labels,
+        "meta": {"ymin": ymin, "ymax": ymax, "points": len(curve)},
+    }
+
+
+def _decompose_multi_questions(question: str) -> list:
+    """
+    Soru metnini NLP-benzeri basit ayraçlarla alt sorulara böler.
+    Konuya özel hardcoding yerine genel ayırıcılar kullanılır: '?', 'soru1:', satır blokları.
+    """
+    chunks = []
+    raw_parts = re.split(r"(?:\?\s+|\n+|(?=soru\d*\s*:))", question, flags=re.IGNORECASE)
+    for part in raw_parts:
+        clean = re.sub(r"^\s*soru\d*\s*:\s*", "", part.strip(), flags=re.IGNORECASE)
+        if len(clean) >= 8:
+            chunks.append(clean if clean.endswith("?") else clean + "?")
+    # Aynı parçaları tekilleştir (sıra korunur)
+    uniq = []
+    seen = set()
+    for ch in chunks:
+        key = ch.lower()
+        if key not in seen:
+            seen.add(key)
+            uniq.append(ch)
+    return uniq[:24]
+
+
+def _build_planner_steps(sub_questions: list, route_features: dict) -> list:
+    """Planlayıcı çıktısını adım listesi formatında döndürür."""
+    steps = []
+    total = len(sub_questions)
+    intent = route_features.get("intent", "general")
+    for i, sq in enumerate(sub_questions, 1):
+        steps.append(
+            {
+                "title": f"Plan Düğümü {i}/{total}",
+                "content": f"Alt soru ayrıştırıldı ve rota kuyruğuna alındı: {sq}",
+                "formula": f"intent={intent}, sıra={i}/{total}",
+                "result": "queued",
+            }
+        )
+    return steps
+
+
 @app.route("/solve", methods=["POST"])
 def solve():
     data = request.get_json()
@@ -16088,11 +16364,21 @@ def solve():
 
     # ── 2. Q-Learning Route — semantic sinyaller state'e dahil ───────────────
     layout, features, reward, q_vals = router.route(question, signals)
+    sub_questions = _decompose_multi_questions(question)
+    planner_steps = _build_planner_steps(sub_questions, features)
 
     # ── 3. Ollama — solver hint + constraint prompt + consistency loop ────────
     sol_data = ollama.solve(question, signals, sem, scorer, solver_ctx, eq_ctx=eq_ctx)
     sol_data["question"] = question
     sol_data["layout"] = layout
+    if planner_steps:
+        sol_data.setdefault("steps", [])
+        sol_data["steps"] = planner_steps + sol_data["steps"]
+        sol_data["_multi_question_count"] = len(sub_questions)
+        sol_data.setdefault(
+            "explanation",
+            "Soru metni çoklu-alt-soru planlayıcısı ile ayrıştırıldı ve çözüm adımları birleştirildi.",
+        )
 
     # ── 3.5. StepDependencyGraph + NumericTruthValidator ──────────────────────
     # Game theory sol_data'sında step sayısı büyük olabilir — SDG'yi atla
@@ -16221,6 +16507,7 @@ def solve():
             "question": question,
             "steps": sol_data.get("steps", []),
             "formula": str(sol_data.get("formula", "")),
+            "graph_data": _build_graph_automaton_payload(question, sol_data),
         }
     )
 
