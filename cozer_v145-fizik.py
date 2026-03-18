@@ -12889,18 +12889,17 @@ class NarrativeBeliefPropagator:
         """
         chain = chain_result.get("chain", [])
         props = chain_result.get("propositions", {})
-        hidden = chain_result.get("hidden_nodes", [])
 
         if not chain:
             return {"propagation_steps": [], "warnings": ["Zincir boş"]}
 
         # ── Adım 1: Mantık cümlesinden terminal durumları çıkar ──────────────
-        terminal_states = self._extract_terminal_states(logic_str, props)
+        terminal_states, terminal_meta = self._extract_terminal_states(logic_str, props)
 
         # ── Adım 2: Kümülatif inanç yayılımı ─────────────────────────────────
         steps = []
         p_running = 1.0
-        entropy_parts = []
+        warnings = list(chain_result.get("warnings", []))
 
         for node in chain:
             p_node = node.get("prior", 0.5)
@@ -12931,6 +12930,7 @@ class NarrativeBeliefPropagator:
                     "description": description,
                     "chain_weight": round(p_running, 6),
                     "state_prior": round(p_state, 4),
+                    "probability_known": True,
                 }
 
             # Normalize
@@ -12941,21 +12941,34 @@ class NarrativeBeliefPropagator:
                         final_dist[k]["probability"] / total, 6
                     )
         else:
-            # Terminal bilgisi yoksa zincir sonunu kullan
+            # Terminal bilgisi yoksa "kesin terminal dağılımı" üretme.
+            # Önceki sürümlerde burada sayı türetmek (ör. son iki önermeyi normalize etmek)
+            # yoktan posterior üretimine yol açıyordu.
             final_dist["zincir_sonu"] = {
-                "probability": round(p_running, 6),
+                "probability": None,
                 "description": "Zincir terminal durumu belirsiz",
+                "chain_weight": round(p_running, 6),
+                "probability_known": False,
             }
+            warnings.append(
+                "[MOD3-EKSİK-VERİ] Terminal durumlara ait açık olasılık/koşul bulunmadı; "
+                "normalleştirilmiş sonuç üretilmedi."
+            )
+        if terminal_meta.get("incomplete_branching"):
+            warnings.append(
+                "[MOD3-EKSİK-DAL] 'aksi halde/else' dalı tespit edildi ancak "
+                "sayısal olasılıklar tam verilmedi. Sonuçlar yalnızca nitel yorumlanmalı."
+            )
 
         # ── Adım 4: Shannon entropisi ─────────────────────────────────────────
-        probs = [
-            v.get("probability_normalized", v["probability"])
-            for v in final_dist.values()
-        ]
+        probs = []
+        for v in final_dist.values():
+            pv = v.get("probability_normalized", v.get("probability"))
+            if isinstance(pv, (int, float)) and pv > 0:
+                probs.append(pv)
         entropy = 0.0
         for p in probs:
-            if p > 0:
-                entropy -= p * math.log2(p)
+            entropy -= p * math.log2(p)
 
         # ── Adım 5: Doğrudan atlama farkı ────────────────────────────────────
         # "Doğrudan d'ye bağlama" senaryosu: sadece son önsel alınır
@@ -12975,17 +12988,12 @@ class NarrativeBeliefPropagator:
                 )
             )
         else:
-            p_direct = (
-                _SPCE.compute_prior(direct_p)
-                if direct_p
-                else (_SPCE._sigmoid(_SPCE._BASE_LOGIT))
-            )
+            p_direct = None
 
-        direct_skip_delta = abs(p_running - p_direct)
+        direct_skip_delta = abs(p_running - p_direct) if p_direct is not None else None
 
         # ── Uyarı: zinciri atlama farkı büyükse ──────────────────────────────
-        warnings = list(chain_result.get("warnings", []))
-        if direct_skip_delta > 0.10:
+        if direct_skip_delta is not None and direct_skip_delta > 0.10:
             warnings.append(
                 f"[MOD3-UYARI] Doğrudan atlama hatası: "
                 f"Zincir P={p_running:.4f} vs Doğrudan P={p_direct:.4f} "
@@ -12997,19 +13005,26 @@ class NarrativeBeliefPropagator:
             "propagation_steps": steps,
             "final_distribution": final_dist,
             "entropy": round(entropy, 6),
-            "direct_skip_delta": round(direct_skip_delta, 6),
+            "direct_skip_delta": (
+                round(direct_skip_delta, 6) if direct_skip_delta is not None else None
+            ),
             "chain_prior": round(p_running, 6),
             "warnings": warnings,
+            "terminal_meta": terminal_meta,
         }
 
-    def _extract_terminal_states(self, logic_str: str, props: dict) -> dict:
+    def _extract_terminal_states(self, logic_str: str, props: dict) -> tuple:
         """
         Mantık cümlesinden terminal durumları çıkarır.
         Örnek: "c d'dir; c aksi halde e'dir" → {d: (0.70, ...), e: (0.30, ...)}
-        Hard-coding yok — tüm olasılıklar prop metinlerinden çıkarılır.
+        Not: Açık olasılık yoksa sistem terminal olasılık uydurmaz.
         """
+        meta = {
+            "has_explicit_probability": False,
+            "incomplete_branching": False,
+        }
         if not logic_str:
-            return {}
+            return {}, meta
 
         q = logic_str.lower()
         terminal = {}
@@ -13019,45 +13034,49 @@ class NarrativeBeliefPropagator:
         for lbl, val in formal_vals:
             if lbl in props:
                 terminal[lbl] = (Decimal(str(val)), props.get(lbl, lbl))
+                meta["has_explicit_probability"] = True
 
         # Mantıksal "ise d'dir / aksi halde e'dir" paterni
-        # Bu durumda koşulun gerçekleşme kararı zincirden gelir
+        # Bu tek başına sayısal dağılım vermez.
         ise_pattern = re.findall(
-            r'(?:ise|then|eğer)[,\s]+([a-z])[\'"]?(?:\s+d[\'"]?ir|\s+olur)', q
+            r"(?:ise|then|eğer)[,\s]+([a-z])[\'\"]?(?:\s+d[\'\"]?ir|\s+olur)", q
         )
         else_pattern = re.findall(
-            r'(?:aksi\s+halde|otherwise|değilse|else)[,\s]+([a-z])[\'"]?(?:\s+d[\'"]?ir|\s+olur)?',
+            r"(?:aksi\s+halde|otherwise|değilse|else)[,\s]+([a-z])[\'\"]?(?:\s+d[\'\"]?ir|\s+olur)?",
             q,
         )
+        if else_pattern and not meta["has_explicit_probability"]:
+            meta["incomplete_branching"] = True
 
         # Etiket → doğrudan arama: "d'dir" → d terminal
         direct_terminal = re.findall(r"\b([a-z])\'?(?:dir|dır|dur|dür|olur)\b", q)
         for lbl in direct_terminal:
-            if lbl in props and lbl not in terminal:
-                # Önsel olasılık: SPCE'den hesaplanır — sabit float yok
+            if lbl in props and lbl not in terminal and meta["has_explicit_probability"]:
+                # Sayısal veri varsa yardımcı terminal etiketini ekleyebiliriz.
                 txt = props[lbl]
                 p = _SPCE.compute_prior(txt)
                 terminal[lbl] = (p, props.get(lbl, lbl))
 
-        # Aksi halde etiketleri — tümleyeni al
+        # Aksi halde etiketleri — sadece explicit olasılık varsa tümleyen al
         for lbl in else_pattern:
-            if lbl in props and lbl not in terminal:
+            if lbl in props and lbl not in terminal and meta["has_explicit_probability"]:
                 # Tümleyeni, mevcut terminal toplamından hesapla
                 existing_sum = sum(v[0] for v in terminal.values())
                 remainder = max(0.0, 1.0 - existing_sum)
                 terminal[lbl] = (round(remainder, 4), props.get(lbl, lbl))
 
-        # Terminal boşsa son iki önerme etiketini kullan
-        # Olasılıklar SPCE'den hesaplanır, sonra normalize edilir
-        if not terminal and len(props) >= 2:
-            labels = sorted(props.keys())
-            last_two = labels[-2:]
-            raw_priors = {l: _SPCE.compute_prior(props.get(l, l)) for l in last_two}
-            total_raw = sum(raw_priors.values()) or 1.0
-            for l in last_two:
-                terminal[l] = (round(raw_priors[l] / total_raw, 4), props.get(l, l))
+        # Açık olasılık yoksa terminali boş döndür: "bilinemez" korunur.
+        if not meta["has_explicit_probability"]:
+            return {}, meta
 
-        return terminal
+        # Explicit olasılık var ama toplam 1 değilse normalize et.
+        total = float(sum(v[0] for v in terminal.values()))
+        if total > 0 and abs(total - 1.0) > 1e-9:
+            for lbl in list(terminal.keys()):
+                p, desc = terminal[lbl]
+                terminal[lbl] = (round(float(p) / total, 6), desc)
+
+        return terminal, meta
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
