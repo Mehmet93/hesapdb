@@ -8931,6 +8931,7 @@ class GameTheoryNLPExtractor:
             "players": [],
             "n_players": 0,
             "payoff_matrix": {},
+            "coalition_values": [],
             "n_rounds": 1,
             "ask_type": [],
             "step_target": None,
@@ -8965,6 +8966,7 @@ class GameTheoryNLPExtractor:
         result["players"] = self._extract_players(question, q)
         result["n_players"] = len(result["players"])
         result["payoff_matrix"] = self._extract_payoff(question, q)
+        result["coalition_values"] = self._extract_coalition_values(question)
         result["matrix_dim"], _ = self._extract_matrix_dim(
             question, q, result["players"]
         )
@@ -9210,6 +9212,36 @@ class GameTheoryNLPExtractor:
             payoff["T"] = 5
 
         return payoff
+
+    def _extract_coalition_values(self, question: str):
+        """
+        Kooperatif oyun değer fonksiyonu kalıplarını çıkarır.
+        Örnekler:
+          - v({1,2})=60
+          - v({A,B}) : 14.5
+          - v(∅)=0
+          - v(emptyset)=0
+        """
+        out = []
+        seen = set()
+        patt = re.compile(
+            r"v\s*\(\s*(?:\{([^}]*)\}|(∅|emptyset|boş\s*küme))\s*\)\s*[:=]\s*([+\-]?\d+(?:[.,]\d+)?)",
+            flags=re.IGNORECASE,
+        )
+        for m in patt.finditer(question):
+            members_raw = (m.group(1) or "").strip()
+            if m.group(2):
+                members = []
+            else:
+                toks = [t.strip() for t in re.split(r"\s*,\s*", members_raw) if t.strip()]
+                members = toks
+            val = float(m.group(3).replace(",", "."))
+            key = (tuple(sorted(members)), val)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"members": members, "value": val})
+        return out
 
     def _extract_matrix_dim(self, question, q, players):
         m = re.search(r"(\d+)\s*[x×]\s*(\d+)\s*(?:matri|tablo|grid)", q)
@@ -10155,27 +10187,76 @@ class _GameTheoryTheoremSuite:
 
     # ── 3. Shapley Değeri ────────────────────────────────────────────────────
     def _shapley(self, gt_params, sim_result, players, payoff):
-        n = len(players)
+        coalition_values = gt_params.get("coalition_values") or []
+        scores = sim_result.get("scores", {})
+        n_rounds = sim_result.get("n_rounds", 1)
 
-        # Kooperatif oyun: v(S) = |S| * R  (hep işbirliği)
-        # Shapley değeri: her oyuncunun marjinal katkısının ortalama beklentisi
-        # PD'de kooperatif değer fonksiyonu: v(S) = |S|*(|S|-1)/2 * R
-        # (her çift (C,C) → 2R alır, her oyuncu R alır)
+        # ── Genel koalisyon oyunu: v(S) girdi olarak verilmişse tam Shapley hesapla
+        if coalition_values:
+            coalition_map = {}
+            player_ids = set()
+            for row in coalition_values:
+                members = frozenset(str(m).strip() for m in row.get("members", []))
+                coalition_map[members] = float(row.get("value", 0.0))
+                player_ids.update(members)
+
+            if not player_ids:
+                inferred_n = int(gt_params.get("n_players", 0) or 0)
+                player_ids = {str(i) for i in range(1, inferred_n + 1)}
+            player_ids = sorted(player_ids)
+            n = len(player_ids)
+            fact_n = math.factorial(n) if n > 0 else 1
+
+            def v_set(s):
+                return float(coalition_map.get(frozenset(s), 0.0))
+
+            shapley_vals = {}
+            grand_value = v_set(player_ids)
+            for pid in player_ids:
+                others = [x for x in player_ids if x != pid]
+                phi = 0.0
+                for r in range(len(others) + 1):
+                    for comb in itertools.combinations(others, r):
+                        S = frozenset(comb)
+                        weight = (
+                            math.factorial(len(S))
+                            * math.factorial(n - len(S) - 1)
+                            / fact_n
+                        )
+                        phi += weight * (v_set(set(S) | {pid}) - v_set(S))
+                shapley_vals[f"Oyuncu {pid}"] = phi
+
+            return {
+                "name": "Shapley Değeri (Kooperatif Oyun Teorisi)",
+                "symbol": "φ",
+                "applies": True,
+                "result": " | ".join(
+                    f"φ({nm})={sv:.4g}" for nm, sv in shapley_vals.items()
+                ),
+                "explanation": (
+                    f"Koalisyon değer fonksiyonundan doğrudan hesaplandı (n={n}). "
+                    f"v(N)={grand_value:.4g}, Σφᵢ={sum(shapley_vals.values()):.4g}."
+                ),
+                "formula": (
+                    "φᵢ(v)=Σ_{S⊆N\\{i}} [|S|!(n-|S|-1)!/n!]·[v(S∪{i})-v(S)] "
+                    "| Eksik koalisyon değerleri 0 kabul edildi."
+                ),
+                "warning": None,
+            }
+
+        # ── Iterated-PD fallback: simetrik tam işbirliği varsayımı
+        n = len(players)
+        R = payoff.get("R", 3)
+
         def v(size):
-            # Tam işbirliği koalisyon değeri: her çift R+R kazanır
             return size * (size - 1) * R if size > 1 else 0
 
         shapley_vals = {}
-        # Her oyuncu için Shapley hesapla (simetrik oyun → eşit dağılım)
         total_val = v(n)
-        # Simetrik PD'de Shapley değeri eşit dağıtım:
         sv = total_val / n if n > 0 else 0
         for p in players:
             shapley_vals[p["name"]] = sv
 
-        # Gerçek simülasyon skorlarıyla karşılaştır
-        scores = sim_result.get("scores", {})
-        n_rounds = sim_result.get("n_rounds", 1)
         return {
             "name": "Shapley Değeri (Kooperatif Oyun Teorisi)",
             "symbol": "φ",
