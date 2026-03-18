@@ -8633,6 +8633,9 @@ class OllamaClient:
         def _merge_answer(ans, numeric):
             # Cevap boşsa veya sembolikse, numerik özeti ekle
             if not numeric:
+                # LLM "None" / boş döndüyse adımlardan en güçlü sonucu türet
+                if ans is None or str(ans).strip().lower() in {"", "none", "null", "?"}:
+                    return ""
                 return ans
             numeric_str = (
                 " | ".join(f"{k}: {v}" for k, v in numeric.items())
@@ -8646,6 +8649,30 @@ class OllamaClient:
             if numeric_str and numeric_str not in ans_str:
                 return f"{ans_str} | {numeric_str}"
             return ans
+
+        def _fallback_answer_from_steps(steps: list) -> str:
+            """
+            Nihai cevap boş/None ise adımlardan kısa özet üret.
+            Hard-code soru tipine bağlı değildir; yalnızca mevcut adım sonuçlarını kullanır.
+            """
+            picks = []
+            for st in reversed(steps or []):
+                if st.get("_planner_step"):
+                    continue
+                title = str(st.get("title", "")).strip()
+                result = str(st.get("result", "")).strip()
+                if not result:
+                    result = _first_numeric(
+                        " ".join(str(st.get(k, "")) for k in ("formula", "content"))
+                    ).strip()
+                if result:
+                    label = title[:64] if title else "Sonuç"
+                    picks.append(f"{label}: {result}")
+                if len(picks) >= 2:
+                    break
+            if not picks:
+                return "Hesaplandı (detaylar adımlarda)."
+            return " | ".join(reversed(picks))
 
         steps = sol_data.get("steps") or []
         bound_steps = []
@@ -8677,6 +8704,11 @@ class OllamaClient:
 
         # Nihai cevap alanı
         sol_data["answer"] = _merge_answer(sol_data.get("answer"), sol_data.get("numeric"))
+        if (
+            sol_data.get("answer") is None
+            or str(sol_data.get("answer", "")).strip().lower() in {"", "none", "null", "?"}
+        ):
+            sol_data["answer"] = _fallback_answer_from_steps(sol_data.get("steps") or [])
         return sol_data
 
     def solve(
@@ -15450,10 +15482,13 @@ createApp({
       const ctx = canvas.getContext('2d');
       const w = canvas.width, h = canvas.height;
       const theme = (payload && payload.theme) || { bg:'#000', grid:'#093', curve:'#00e676', curve2:'#69ff47', text:'#94ffb5' };
+      const mode = (payload && payload.render_mode) || { coord:'cartesian', style:'smooth', trajectory:'raw', id:'g00' };
+      const axes = (payload && payload.axes) || null;
 
       ctx.fillStyle = theme.bg;
       ctx.fillRect(0, 0, w, h);
 
+      // ── Arka plan ızgarası (siyah zemin, yeşil ton) ─────────────────────
       ctx.strokeStyle = theme.grid;
       ctx.lineWidth = 1;
       for (let x = 20; x < w; x += 40) {
@@ -15463,22 +15498,92 @@ createApp({
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
       }
 
+      // Bilimsel eksenler (gerçek sayı doğrusu referansı)
+      if (axes && Number.isFinite(axes.xmin) && Number.isFinite(axes.xmax)) {
+        const mapX = v => 20 + (w - 40) * ((v - axes.xmin) / Math.max(1e-9, (axes.xmax - axes.xmin)));
+        const mapY = v => h - 20 - (h - 40) * ((v - axes.ymin) / Math.max(1e-9, (axes.ymax - axes.ymin)));
+        const xAxisY = mapY(axes.y0 || 0);
+        const yAxisX = mapX(axes.x0 || 0);
+
+        ctx.strokeStyle = '#14ff9c';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(20, xAxisY); ctx.lineTo(w - 20, xAxisY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(yAxisX, 20); ctx.lineTo(yAxisX, h - 20); ctx.stroke();
+
+        ctx.fillStyle = theme.text;
+        ctx.font = '10px JetBrains Mono';
+        const ticks = 6;
+        for (let i = 0; i <= ticks; i++) {
+          const xv = axes.xmin + (axes.xmax - axes.xmin) * (i / ticks);
+          const px = mapX(xv);
+          ctx.beginPath(); ctx.moveTo(px, xAxisY - 4); ctx.lineTo(px, xAxisY + 4); ctx.stroke();
+          ctx.fillText(xv.toFixed(1), px - 10, Math.min(h - 6, xAxisY + 14));
+        }
+        for (let i = 0; i <= ticks; i++) {
+          const yv = axes.ymin + (axes.ymax - axes.ymin) * (i / ticks);
+          const py = mapY(yv);
+          ctx.beginPath(); ctx.moveTo(yAxisX - 4, py); ctx.lineTo(yAxisX + 4, py); ctx.stroke();
+          ctx.fillText(yv.toFixed(1), Math.max(2, yAxisX + 6), py - 2);
+        }
+      }
+
+      // Polar referans halkaları
+      if (mode.coord === 'polar') {
+        const cx = w * 0.5, cy = h * 0.5;
+        for (let r = 30; r < Math.min(w, h) * 0.45; r += 28) {
+          ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+        }
+      }
+
       const curve = (payload && payload.curve) ? payload.curve : [];
       if (curve.length >= 2) {
         ctx.strokeStyle = theme.curve;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(curve[0].x, curve[0].y);
-        for (let i = 1; i < curve.length; i++) {
-          const p0 = curve[i - 1], p1 = curve[i];
-          const cx = (p0.x + p1.x) / 2;
-          ctx.quadraticCurveTo(cx, p0.y, p1.x, p1.y);
+        ctx.lineWidth = mode.style === 'pulse' ? 3 : 2;
+        if (mode.style === 'dashed') ctx.setLineDash([6, 4]);
+        else ctx.setLineDash([]);
+
+        const points = curve.map(p => {
+          if (mode.coord === 'polar') {
+            const cx = w * 0.5, cy = h * 0.5;
+            const maxR = Math.min(w, h) * 0.42;
+            const r = (p.radius || 0.5) * maxR;
+            const t = (p.theta || 0) - Math.PI / 2;
+            return { x: cx + Math.cos(t) * r, y: cy + Math.sin(t) * r, v: p.v };
+          }
+          if (mode.coord === 'grid') {
+            const gx = 20 + (w - 40) * (p.xn || 0);
+            const gy = 20 + (h - 40) * (1 - (p.yn || 0));
+            const sx = Math.round(gx / 20) * 20;
+            const sy = Math.round(gy / 20) * 20;
+            return { x: sx, y: sy, v: p.v };
+          }
+          return { x: p.x, y: p.y, v: p.v };
+        });
+
+        if (mode.style === 'bars' && !(payload?.meta?.expr_mode)) {
+          ctx.fillStyle = theme.curve + '88';
+          points.forEach(p => {
+            ctx.fillRect(p.x - 4, p.y, 8, h - 20 - p.y);
+          });
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(points[0].x, points[0].y);
+          for (let i = 1; i < points.length; i++) {
+            const p0 = points[i - 1], p1 = points[i];
+            if (mode.style === 'scatter') {
+              ctx.moveTo(p1.x, p1.y);
+            } else {
+              const mx = (p0.x + p1.x) / 2;
+              ctx.quadraticCurveTo(mx, p0.y, p1.x, p1.y);
+            }
+          }
+          if (mode.style !== 'scatter') ctx.stroke();
         }
-        ctx.stroke();
 
         ctx.fillStyle = theme.curve2;
-        curve.forEach(p => {
-          ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2); ctx.fill();
+        points.forEach((p, i) => {
+          const r = mode.style === 'pulse' ? (2.5 + (i % 3)) : 2.5;
+          ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
         });
       }
 
@@ -15488,6 +15593,7 @@ createApp({
       labels.forEach((lb, i) => {
         ctx.fillText('• ' + lb, 12, 18 + i * 14);
       });
+      ctx.fillText(`mode:${mode.id} ${mode.coord}/${mode.style} · catalog:${(payload && payload.mode_catalog_size) || 0}`, 12, h - 8);
     },
 
 
@@ -16227,13 +16333,70 @@ def search():
 
 
 
-def _build_graph_automaton_payload(question: str, sol_data: dict, width: int = 560, height: int = 320) -> dict:
+class GraphSimulationAgent:
     """
-    NLP-tabanlı çizim otomatı için seri + düğüm verisi üretir.
-    Hardcoded konu/soru etiketleri yerine metin ve çözüm adımlarından dinamik çıkarım yapar.
+    Hafızalı grafik ajanı:
+    - NLP sinyallerinden/çözüm izinden seri çıkarır
+    - 50 farklı render modundan birini Q-learning ile seçer
+    - Cartesian / Polar / Grid koordinatlarında simülasyon üretir
     """
 
-    def _extract_numbers(text: str) -> list:
+    MEMORY_PATH = "graph_agent_memory.pkl"
+
+    def __init__(self, alpha=0.12, gamma=0.82, epsilon=0.08):
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.q_table = defaultdict(lambda: defaultdict(float))
+        self.episode = 0
+        self._load()
+        self.modes = self._build_modes()  # 50 mod
+
+    def _build_modes(self) -> list:
+        coords = ["cartesian", "polar", "grid"]
+        styles = ["smooth", "dashed", "bars", "scatter", "pulse"]
+        trajectories = ["raw", "symmetric", "spiral", "wave"]
+        out = []
+        idx = 1
+        for c in coords:
+            for s in styles:
+                for t in trajectories:
+                    out.append(
+                        {
+                            "id": f"g{idx:02d}",
+                            "coord": c,
+                            "style": s,
+                            "trajectory": t,
+                            "name": f"{c}_{s}_{t}",
+                        }
+                    )
+                    idx += 1
+        return out[:50]
+
+    def _load(self):
+        try:
+            with open(self.MEMORY_PATH, "rb") as f:
+                d = pickle.load(f)
+            self.q_table = defaultdict(
+                lambda: defaultdict(float),
+                {
+                    tuple(k): defaultdict(float, v)
+                    for k, v in (d.get("q_table") or {}).items()
+                },
+            )
+            self.episode = int(d.get("episode", 0))
+        except Exception:
+            pass
+
+    def _save(self):
+        try:
+            serial = {tuple(k): dict(v) for k, v in self.q_table.items()}
+            with open(self.MEMORY_PATH, "wb") as f:
+                pickle.dump({"q_table": serial, "episode": self.episode}, f)
+        except Exception:
+            pass
+
+    def _extract_numbers(self, text: str) -> list:
         vals = []
         for raw in re.findall(r"-?\d+(?:\.\d+)?", text or ""):
             try:
@@ -16242,69 +16405,343 @@ def _build_graph_automaton_payload(question: str, sol_data: dict, width: int = 5
                 continue
         return vals
 
-    tokens = re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü]{3,}", question or "")
-    stop = {"veya", "sonra", "olan", "gibi", "then", "with", "from", "için", "soru", "question"}
-    labels = []
-    seen = set()
-    for t in tokens:
-        k = t.lower()
-        if k in stop or k in seen:
-            continue
-        seen.add(k)
-        labels.append(t)
-        if len(labels) >= 12:
-            break
+    def _extract_expression(self, question: str, sol_data: dict) -> str:
+        """
+        Soru/çözüm içinden çizilebilir ifadeyi çıkar:
+          - y = f(x)
+          - f(x) = 0  → y = f(x)
+        """
+        text = " ".join(
+            [
+                str(question or ""),
+                str(sol_data.get("formula", "") or ""),
+                str(sol_data.get("answer", "") or ""),
+            ]
+        )
+        text = text.replace("−", "-").replace("^", "**")
 
-    series = []
-    steps = sol_data.get("steps") or []
-    for i, st in enumerate(steps, 1):
-        txt = " ".join([str(st.get("content", "")), str(st.get("formula", "")), str(st.get("result", ""))])
-        nums = _extract_numbers(txt)
-        if nums:
-            series.append({"x": i, "y": sum(nums) / max(len(nums), 1)})
+        # y = ...
+        m = re.search(r"\by\s*=\s*([^\n,;]+)", text, flags=re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
 
-    if len(series) < 2:
-        pmap = sol_data.get("probabilities") or sol_data.get("posteriors") or {}
-        if isinstance(pmap, dict) and pmap:
-            for i, (_, v) in enumerate(pmap.items(), 1):
+        # ... = 0  biçiminden f(x) çıkar
+        m2 = re.search(r"([A-Za-z0-9xX\(\)\+\-\*/\s\.]+)=\s*0", text)
+        if m2:
+            return m2.group(1).strip()
+        return ""
+
+    def _sample_expression_series(self, expr: str) -> tuple[list, dict]:
+        """
+        İfadeyi gerçek sayı doğrusu üzerinde örnekler.
+        Dönüş: (series, axes_meta)
+        """
+        if not expr:
+            return [], {}
+
+        xmin, xmax = -10.0, 10.0
+        n = 121
+        xs = [xmin + i * (xmax - xmin) / (n - 1) for i in range(n)]
+        ys = []
+
+        if _SYMPY_OK:
+            try:
+                x = sp.symbols("x")
+                sx = sp.sympify(expr, locals={"x": x, "X": x})
+                f = sp.lambdify(x, sx, "math")
+                for xv in xs:
+                    try:
+                        yv = float(f(xv))
+                        if math.isfinite(yv):
+                            ys.append((xv, yv))
+                    except Exception:
+                        continue
+            except Exception:
+                ys = []
+
+        if not ys:
+            # Sympy yoksa / parse başarısızsa güvenli eval fallback
+            safe_env = {
+                "sin": math.sin,
+                "cos": math.cos,
+                "tan": math.tan,
+                "exp": math.exp,
+                "log": math.log,
+                "sqrt": math.sqrt,
+                "pi": math.pi,
+                "e": math.e,
+                "abs": abs,
+            }
+            for xv in xs:
                 try:
-                    series.append({"x": i, "y": float(v)})
+                    yv = eval(expr, {"__builtins__": {}}, {**safe_env, "x": xv, "X": xv})
+                    yv = float(yv)
+                    if math.isfinite(yv):
+                        ys.append((xv, yv))
                 except Exception:
                     continue
 
-    if len(series) < 2:
-        nums = _extract_numbers(str(sol_data.get("answer", "")) + " " + str(sol_data.get("explanation", "")))
-        if not nums:
-            nums = [0.0, 1.0]
-        for i, v in enumerate(nums[:24], 1):
-            series.append({"x": i, "y": float(v)})
+        if len(ys) < 3:
+            return [], {}
 
-    ys = [p["y"] for p in series] if series else [0.0, 1.0]
-    ymin, ymax = min(ys), max(ys)
-    if abs(ymax - ymin) < 1e-12:
-        ymax = ymin + 1.0
+        # Aykırı değerleri kırp (bilimsel eksen için IQR-benzeri)
+        raw_y = [y for _, y in ys]
+        y_sorted = sorted(raw_y)
+        q1 = y_sorted[len(y_sorted) // 4]
+        q3 = y_sorted[(3 * len(y_sorted)) // 4]
+        iqr = max(1e-9, q3 - q1)
+        lo, hi = q1 - 4 * iqr, q3 + 4 * iqr
+        ys = [(xv, max(lo, min(hi, yv))) for xv, yv in ys]
 
-    curve = []
-    n = max(len(series), 2)
-    for idx, p in enumerate(series):
-        x = 20 + (width - 40) * (idx / max(1, n - 1))
-        y = height - 20 - ((p["y"] - ymin) / (ymax - ymin)) * (height - 40)
-        curve.append({"x": round(x, 3), "y": round(y, 3), "v": round(p["y"], 6)})
+        series = [{"x_real": xv, "y_real": yv} for xv, yv in ys]
+        axes = {"xmin": xmin, "xmax": xmax, "ymin": lo, "ymax": hi, "source": "expression"}
+        return series, axes
 
-    if not labels:
-        labels = ["düğüm", "olasılık", "çıkarım"]
+    def _series_from_solution(self, question: str, sol_data: dict) -> tuple:
+        expr = self._extract_expression(question, sol_data)
+        expr_series, expr_axes = self._sample_expression_series(expr)
+        if expr_series:
+            labels = [f"expr: y={expr}", "koordinat sistemi", "gerçek sayı doğrusu"]
+            return expr_series, labels, expr_axes
 
-    return {
-        "theme": {"bg": "#050a0a", "grid": "#0f2a0f", "curve": "#00e676", "curve2": "#69ff47", "text": "#94ffb5"},
-        "width": width,
-        "height": height,
-        "curve": curve,
-        "labels": labels,
-        "meta": {"ymin": ymin, "ymax": ymax, "points": len(curve)},
-    }
+        series = []
+        steps = sol_data.get("steps") or []
+        for i, st in enumerate(steps, 1):
+            txt = " ".join(
+                [str(st.get("content", "")), str(st.get("formula", "")), str(st.get("result", ""))]
+            )
+            nums = self._extract_numbers(txt)
+            if nums:
+                series.append({"x": i, "y": sum(nums) / max(len(nums), 1)})
+
+        if len(series) < 2:
+            pmap = sol_data.get("probabilities") or sol_data.get("posteriors") or {}
+            if isinstance(pmap, dict) and pmap:
+                for i, (_, v) in enumerate(pmap.items(), 1):
+                    try:
+                        series.append({"x": i, "y": float(v)})
+                    except Exception:
+                        continue
+
+        if len(series) < 2:
+            nums = self._extract_numbers(
+                str(sol_data.get("answer", "")) + " " + str(sol_data.get("explanation", ""))
+            )
+            if not nums:
+                nums = [0.0, 1.0]
+            for i, v in enumerate(nums[:24], 1):
+                series.append({"x": i, "y": float(v)})
+
+        tokens = re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü]{3,}", question or "")
+        stop = {"veya", "sonra", "olan", "gibi", "then", "with", "from", "için", "soru", "question"}
+        labels, seen = [], set()
+        for t in tokens:
+            k = t.lower()
+            if k in stop or k in seen:
+                continue
+            seen.add(k)
+            labels.append(t)
+            if len(labels) >= 12:
+                break
+        if not labels:
+            labels = ["düğüm", "olasılık", "çıkarım"]
+        return series, labels, {}
+
+    def _state(self, question: str, sol_data: dict) -> tuple:
+        q = (question or "").lower()
+        has_graph_kw = 1 if re.search(r"graf|graph|çiz|curve|parab|polar|ızgara|grid|koordinat", q) else 0
+        has_expr_kw = 1 if re.search(r"x|y\s*=|\^|parabol|fonksiyon|equation|denklem", q) else 0
+        n_steps = min(len(sol_data.get("steps") or []), 12)
+        intent = str(sol_data.get("type", "general"))
+        return (intent, n_steps // 3, has_graph_kw, has_expr_kw)
+
+    def _pick_mode(self, state: tuple) -> dict:
+        if random.random() < self.epsilon or not self.q_table[state]:
+            return random.choice(self.modes)
+        best_id = max(self.q_table[state], key=self.q_table[state].get)
+        return next((m for m in self.modes if m["id"] == best_id), self.modes[0])
+
+    def _reward(self, mode: dict, series: list, question: str) -> float:
+        q = (question or "").lower()
+        r = 1.0
+        if mode["coord"] == "polar" and re.search(r"polar|açı|angle|dairesel|spiral", q):
+            r += 1.5
+        if mode["coord"] == "grid" and re.search(r"grid|ızgara|matris|durum", q):
+            r += 1.2
+        if len(series) >= 6 and mode["style"] in {"smooth", "dashed"}:
+            r += 0.7
+        if len(series) <= 4 and mode["style"] in {"bars", "pulse"}:
+            r += 0.6
+        # Eğri çizim niyeti varsa sürekli çizimi güçlendir
+        if re.search(r"eğri|curve|fonksiyon|parabol|koordinat|real|gerçek sayı", q):
+            if mode["style"] in {"smooth", "dashed"}:
+                r += 1.8
+            if mode["style"] in {"bars", "pulse"}:
+                r -= 1.2
+            if mode["coord"] == "cartesian":
+                r += 1.0
+        return r
+
+    def _update(self, state: tuple, mode_id: str, reward: float):
+        q = self.q_table[state]
+        max_next = max(q.values()) if q else 0.0
+        q[mode_id] += self.alpha * (reward + self.gamma * max_next - q[mode_id])
+        self.episode += 1
+        if self.episode % 5 == 0:
+            self._save()
+
+    def build_payload(self, question: str, sol_data: dict, width: int, height: int) -> dict:
+        series, labels, axes_meta = self._series_from_solution(question, sol_data)
+        state = self._state(question, sol_data)
+        mode = self._pick_mode(state)
+        reward = self._reward(mode, series, question)
+        self._update(state, mode["id"], reward)
+
+        if series and "y_real" in series[0]:
+            ys = [p["y_real"] for p in series]
+        else:
+            ys = [p["y"] for p in series] if series else [0.0, 1.0]
+        ymin, ymax = min(ys), max(ys)
+        if abs(ymax - ymin) < 1e-12:
+            ymax = ymin + 1.0
+
+        curve = []
+        n = max(len(series), 2)
+        for idx, p in enumerate(series):
+            if "x_real" in p and "y_real" in p:
+                xmin = axes_meta.get("xmin", -10.0)
+                xmax = axes_meta.get("xmax", 10.0)
+                yn_min = axes_meta.get("ymin", ymin)
+                yn_max = axes_meta.get("ymax", ymax)
+                xn = (p["x_real"] - xmin) / max(1e-9, (xmax - xmin))
+                yn = (p["y_real"] - yn_min) / max(1e-9, (yn_max - yn_min))
+                val = p["y_real"]
+            else:
+                xn = idx / max(1, n - 1)
+                yn = (p["y"] - ymin) / (ymax - ymin)
+                val = p["y"]
+
+            if mode["trajectory"] == "symmetric":
+                xn = abs(2 * xn - 1)
+            elif mode["trajectory"] == "spiral":
+                yn = min(1.0, max(0.0, yn * (0.6 + 0.4 * xn)))
+            elif mode["trajectory"] == "wave":
+                yn = min(1.0, max(0.0, yn * 0.7 + (math.sin(xn * 2 * math.pi) + 1) * 0.15))
+
+            x = 20 + (width - 40) * xn
+            y = height - 20 - (height - 40) * yn
+            theta = xn * 2 * math.pi
+            radius = 0.18 + 0.72 * yn
+            curve.append(
+                {
+                    "x": round(x, 3),
+                    "y": round(y, 3),
+                    "v": round(val, 6),
+                    "xn": round(xn, 6),
+                    "yn": round(yn, 6),
+                    "theta": round(theta, 6),
+                    "radius": round(radius, 6),
+                }
+            )
+
+        return {
+            "theme": {"bg": "#050a0a", "grid": "#0f2a0f", "curve": "#00e676", "curve2": "#69ff47", "text": "#94ffb5"},
+            "width": width,
+            "height": height,
+            "curve": curve,
+            "labels": labels,
+            "render_mode": mode,
+            "mode_catalog_size": len(self.modes),
+            "axes": {
+                "xmin": float(axes_meta.get("xmin", 0.0)),
+                "xmax": float(axes_meta.get("xmax", max(1, n - 1))),
+                "ymin": float(axes_meta.get("ymin", ymin)),
+                "ymax": float(axes_meta.get("ymax", ymax)),
+                "x0": 0.0,
+                "y0": 0.0,
+            },
+            "meta": {
+                "ymin": ymin,
+                "ymax": ymax,
+                "points": len(curve),
+                "agent_episode": self.episode,
+                "expr_mode": bool(axes_meta.get("source") == "expression"),
+            },
+        }
 
 
-def _decompose_multi_questions(question: str) -> list:
+_graph_agent = GraphSimulationAgent()
+
+
+def _build_graph_automaton_payload(question: str, sol_data: dict, width: int = 560, height: int = 320) -> dict:
+    return _graph_agent.build_payload(question, sol_data, width, height)
+
+
+class PlannerLearningMemory:
+    """
+    Planlayıcı için hafızalı öğrenen scorer.
+    Alt-soru kalitesini soru-agnostik sinyallerle puanlar ve çözüm sonucundan geri besleme alır.
+    """
+
+    MEMORY_PATH = "planner_memory.pkl"
+
+    def __init__(self, alpha=0.15):
+        self.alpha = alpha
+        self.weights = defaultdict(float)
+        self.episode = 0
+        self._load()
+
+    def _load(self):
+        try:
+            with open(self.MEMORY_PATH, "rb") as f:
+                d = pickle.load(f)
+            self.weights = defaultdict(float, d.get("weights", {}))
+            self.episode = int(d.get("episode", 0))
+        except Exception:
+            pass
+
+    def _save(self):
+        try:
+            with open(self.MEMORY_PATH, "wb") as f:
+                pickle.dump({"weights": dict(self.weights), "episode": self.episode}, f)
+        except Exception:
+            pass
+
+    def features(self, text: str) -> dict:
+        t = (text or "").strip().lower()
+        toks = [x for x in re.findall(r"[a-zçğıöşü0-9]+", t) if x]
+        return {
+            "len": min(len(toks), 16),
+            "has_qmark": 1 if "?" in t else 0,
+            "has_numeric": 1 if re.search(r"\d", t) else 0,
+            "has_verb": 1 if re.search(r"(mi|mı|mu|mü|nedir|kaç|hangi|hesap|bul|çiz|göster)", t) else 0,
+            "has_meta_prefix": 1 if re.search(r"^(mekanlar|durumlar|states)\s*[:\-]", t) else 0,
+        }
+
+    def score(self, text: str) -> float:
+        f = self.features(text)
+        base = 0.0
+        for k, v in f.items():
+            base += self.weights.get(k, 0.0) * float(v)
+        # Hafif öncelik: soru benzeri cümle
+        base += 0.25 * f["has_qmark"] + 0.30 * f["has_verb"] - 0.40 * f["has_meta_prefix"]
+        return base
+
+    def feedback(self, sub_questions: list, consistency_score: float, violations: list):
+        quality = float(consistency_score) - min(len(violations), 6) * 0.08
+        self.episode += 1
+        for sq in sub_questions or []:
+            f = self.features(sq)
+            for k, v in f.items():
+                self.weights[k] += self.alpha * (quality * float(v) - self.weights[k] * 0.02)
+        if self.episode % 5 == 0:
+            self._save()
+
+
+_planner_memory = PlannerLearningMemory()
+
+
+def _decompose_multi_questions(question: str, scorer: PlannerLearningMemory = None) -> list:
     """
     Soru metnini alt sorulara böler.
     Öncelik gerçek soru cümlelerindedir (özellikle "Sorular:" bölümünden sonrası).
@@ -16322,18 +16759,55 @@ def _decompose_multi_questions(question: str) -> list:
 
     chunks = []
 
+    # Gürültü temizleyici: planlayıcıya problem cümlesi yerine gerçek alt-soruları ver
+    def _sanitize_chunk(text: str) -> str:
+        t = (text or "").strip()
+        if not t:
+            return ""
+
+        # "soru1:", "q2-" vb. etiketleri kaldır
+        t = re.sub(r"^\s*(?:soru|q)\s*\d+\s*[:\-]\s*", "", t, flags=re.IGNORECASE)
+        # "eğer, soru1:" gibi iç etiketleri ayıkla
+        t = re.sub(
+            r"\b(?:soru|q)\s*\d+\s*[:\-]\s*", "", t, flags=re.IGNORECASE
+        ).strip()
+        # Bayes başlık kalıplarını adım metninden çıkart (soru bağımsız)
+        t = re.sub(
+            r"^\s*bayes\s+teoremi\s*\([^)]*\)\s*soru\s*[:\-]?\s*",
+            "",
+            t,
+            flags=re.IGNORECASE,
+        ).strip()
+        t = re.sub(r"\s+", " ", t).strip(" -,:;")
+        return t
+
+    def _is_question_like(text: str) -> bool:
+        t = (text or "").strip()
+        if not t:
+            return False
+        # "mekanlar: ..." gibi veri tanımı satırlarını plan adımı yapma
+        if re.search(r"^\s*(mekanlar?|durumlar?|states?)\s*[:\-]", t, re.IGNORECASE):
+            return False
+        # Çok kısa ya da yalnızca isim listesi içeren parçaları ele
+        if len(t) < 8:
+            return False
+        token_count = len(t.split())
+        if token_count <= 2:
+            return False
+        return True
+
     # 1) Öncelik: '?' ile biten gerçek soru cümleleri
     for part in re.split(r"\?\s*", focus):
-        clean = re.sub(r"^\s*soru\d*\s*:\s*", "", part.strip(), flags=re.IGNORECASE)
-        if len(clean) >= 8:
+        clean = _sanitize_chunk(part)
+        if _is_question_like(clean):
             chunks.append(clean + "?")
 
     # 2) Fallback: hiç soru işareti yoksa satır/bölüm bazlı kırılım
     if not chunks:
         raw_parts = re.split(r"(?:\n+|(?=soru\d*\s*:))", focus, flags=re.IGNORECASE)
         for part in raw_parts:
-            clean = re.sub(r"^\s*soru\d*\s*:\s*", "", part.strip(), flags=re.IGNORECASE)
-            if len(clean) >= 12:
+            clean = _sanitize_chunk(part)
+            if _is_question_like(clean) and len(clean) >= 12:
                 chunks.append(clean if clean.endswith("?") else clean + "?")
 
     # Aynı parçaları tekilleştir (sıra korunur)
@@ -16344,6 +16818,12 @@ def _decompose_multi_questions(question: str) -> list:
         if key not in seen:
             seen.add(key)
             uniq.append(ch)
+
+    # Öğrenen scorer ile kalite sıralaması (soruya bağımlı hard-code yok)
+    if scorer and uniq:
+        ranked = sorted(uniq, key=lambda s: scorer.score(s), reverse=True)
+        uniq = ranked
+
     return uniq[:24]
 
 
@@ -16436,7 +16916,7 @@ def solve():
 
     # ── 2. Q-Learning Route — semantic sinyaller state'e dahil ───────────────
     layout, features, reward, q_vals = router.route(question, signals)
-    sub_questions = _decompose_multi_questions(question)
+    sub_questions = _decompose_multi_questions(question, scorer=_planner_memory)
     planner_steps = _build_planner_steps(sub_questions, features)
 
     # ── 3. Ollama — solver hint + constraint prompt + consistency loop ────────
@@ -16529,6 +17009,11 @@ def solve():
 
     # ── 4. Q-Learning reward'ı consistency score ile güncelle ────────────────
     consistency_score = sol_data.get("_consistency_score", 1.0)
+    _planner_memory.feedback(
+        sub_questions=sub_questions,
+        consistency_score=consistency_score,
+        violations=sol_data.get("_consistency_violations", []),
+    )
     adjusted_reward = round(reward * (0.5 + 0.5 * consistency_score), 3)
 
     # ── SolverSelector: sonuç-bazlı Q-tablo güncelleme ───────────────────────
