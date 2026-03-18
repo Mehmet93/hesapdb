@@ -5625,6 +5625,164 @@ class NumericTruthValidator:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  GLOBAL NUMERIC-SYMBOLIC-UNIT NORMALIZER
+#  Negatif değer, sembolik ifade ve birim imzalarını program genelinde tekilleştirir.
+# ═══════════════════════════════════════════════════════════════════════════════
+class NumericSymbolicUnitNormalizer:
+    """
+    - Negatif sayı yuvarlamasını sign-preserving olarak yapar.
+    - Sembolik ifadeleri (sympy varsa) sayısal karşılığa indirger.
+    - Birim ifadelerini çarpma/bölme/üs düzeyinde imza olarak normalleştirir.
+    """
+
+    def __init__(self, precision: int = 8):
+        self.precision = max(2, int(precision))
+        self.quant = Decimal("1").scaleb(-self.precision)
+
+    def _round_signed(self, val: Decimal) -> Decimal:
+        sign = Decimal("-1") if val < 0 else Decimal("1")
+        mag = abs(val).quantize(self.quant)
+        out = sign * mag
+        # -0.00000000 gibi artefact'ları temizle
+        if abs(out) < self.quant:
+            return Decimal("0")
+        return out
+
+    def _to_decimal(self, raw: str) -> Decimal | None:
+        t = (raw or "").strip().replace(",", ".")
+        if not t:
+            return None
+        # Kesir desteği
+        if re.fullmatch(r"[-+]?\d+\s*/\s*[-+]?\d+", t):
+            a, b = re.split(r"/", t)
+            try:
+                a_dec, b_dec = Decimal(a.strip()), Decimal(b.strip())
+                if b_dec == 0:
+                    return None
+                return a_dec / b_dec
+            except Exception:
+                return None
+        try:
+            return Decimal(t)
+        except Exception:
+            pass
+
+        if _SYMPY_OK:
+            try:
+                expr = t.replace("^", "**").replace("−", "-")
+                val = sp.N(sp.sympify(expr, evaluate=True), 60)
+                if val.is_real:
+                    return Decimal(str(val))
+            except Exception:
+                return None
+        return None
+
+    def _format_decimal(self, val: Decimal) -> str:
+        vv = self._round_signed(val)
+        txt = format(vv, f"f")
+        if "." in txt:
+            txt = txt.rstrip("0").rstrip(".")
+        return txt or "0"
+
+    def normalize_numeric_text(self, text: str) -> str:
+        if not text:
+            return text
+        src = str(text).replace("−", "-")
+
+        # Önce kesirleri, sonra ondalık/tam sayıları normalize et
+        def _repl(m):
+            raw = m.group(0)
+            dec = self._to_decimal(raw)
+            if dec is None:
+                return raw
+            return self._format_decimal(dec)
+
+        src = re.sub(r"[-+]?\d+\s*/\s*[-+]?\d+", _repl, src)
+        src = re.sub(r"(?<![A-Za-z_])[-+]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:[eE][-+]?\d+)?", _repl, src)
+        return src
+
+    def unit_signature(self, unit_expr: str) -> str:
+        """Birim ifadesini kanonik imzaya çevirir: m*s^-2 gibi."""
+        expr = (unit_expr or "").replace("·", "*").replace(" ", "")
+        if not expr:
+            return ""
+        parts = re.split(r"([*/])", expr)
+        sign = 1
+        expo = defaultdict(Decimal)
+        for p in parts:
+            if p == "*":
+                sign = 1
+                continue
+            if p == "/":
+                sign = -1
+                continue
+            if not p:
+                continue
+            m = re.fullmatch(r"([A-Za-zµΩ°]+)(?:\^?([-+]?\d+(?:\.\d+)?))?", p)
+            if not m:
+                continue
+            u = m.group(1)
+            pw = Decimal(m.group(2) if m.group(2) is not None else "1")
+            expo[u] += sign * pw
+
+        items = []
+        for k in sorted(expo.keys()):
+            v = expo[k]
+            if v == 0:
+                continue
+            vv = self._format_decimal(v)
+            items.append(f"{k}^{vv}" if vv != "1" else k)
+        return "*".join(items)
+
+    def annotate_units(self, text: str) -> list:
+        """Metinde geçen sayı+birim kalıplarından imza listesi çıkarır."""
+        if not text:
+            return []
+        hits = []
+        pattern = re.compile(r"[-+]?\d+(?:\.\d+)?\s*([A-Za-zµΩ°]+(?:\s*[*/·]\s*[A-Za-zµΩ°]+(?:\^-?\d+)?)*)")
+        for m in pattern.finditer(str(text)):
+            sig = self.unit_signature(m.group(1))
+            if sig:
+                hits.append(sig)
+        # sıra korumalı unique
+        uniq, seen = [], set()
+        for h in hits:
+            if h not in seen:
+                seen.add(h)
+                uniq.append(h)
+        return uniq
+
+    def normalize_solution_payload(self, sol_data: dict) -> dict:
+        d = dict(sol_data or {})
+        for key in ("answer", "numeric", "formula"):
+            if key in d and isinstance(d.get(key), (str, int, float, Decimal)):
+                d[key] = self.normalize_numeric_text(str(d.get(key)))
+
+        steps = []
+        for st in d.get("steps", []) or []:
+            ss = dict(st)
+            for key in ("formula", "result", "content", "title"):
+                if key in ss and isinstance(ss.get(key), (str, int, float, Decimal)):
+                    ss[key] = self.normalize_numeric_text(str(ss.get(key)))
+            unit_hints = []
+            for key in ("formula", "result", "content"):
+                unit_hints.extend(self.annotate_units(ss.get(key, "")))
+            if unit_hints:
+                ss["_unit_signatures"] = list(dict.fromkeys(unit_hints))
+            steps.append(ss)
+        d["steps"] = steps
+
+        root_units = []
+        for key in ("answer", "numeric", "formula"):
+            root_units.extend(self.annotate_units(d.get(key, "")))
+        if root_units:
+            d["_unit_signatures"] = list(dict.fromkeys(root_units))
+        return d
+
+
+_global_num_unit_normalizer = NumericSymbolicUnitNormalizer(precision=8)
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  ARITHMETIC PRECISION VALIDATOR — Tüm aritmetik adımlar için yüksek doğruluk
 #  Amaç: eksi/mertebe hatalarını otomatik düzeltmek, içsel tutarsızlıkları yakalamak
 #  Hard-coding yok; genel ifadeleri Decimal + Sympy ile yeniden hesaplar.
@@ -5723,9 +5881,12 @@ class ArithmeticPrecisionValidator:
             return None
 
     def _format_sci(self, val: Decimal) -> str:
-        """Bilimsel gösterim, 6 anlamlı rakam, mühendislik mertebesi hatalarını engeller."""
+        """Negatif/pozitif değerlerde simetrik yuvarlama ve stabil gösterim."""
         try:
-            return format(val, ".6E")
+            val = _global_num_unit_normalizer._round_signed(Decimal(val))
+            if abs(val) >= Decimal("1e6") or (abs(val) > 0 and abs(val) < Decimal("1e-4")):
+                return format(val, ".6E")
+            return _global_num_unit_normalizer._format_decimal(val)
         except Exception:
             return str(val)
 
@@ -17282,7 +17443,10 @@ def solve():
         symbolic_bypass=symbolic_bypass,
     )
 
-    # ── 5. ASCII render ───────────────────────────────────────────────────────
+    # ── 5. Çözüm normalizasyonu (negatif/sayı-sembolik/birim) ───────────────
+    sol_data = _global_num_unit_normalizer.normalize_solution_payload(sol_data)
+
+    # ── 6. ASCII render ───────────────────────────────────────────────────────
     ascii_out = engine.render(layout, sol_data)
     q_box = engine.q_info_box(layout, features, adjusted_reward, q_vals, router.episode)
     sem_box = _build_sem_box(signals, sol_data)
@@ -18834,6 +18998,9 @@ class RootOrchestrator:
         # ────────────────────────────────────────────────────────────────────
         success = len(final_violations) == 0 and completeness_score >= 0.8
 
+        if current_sol_data:
+            current_sol_data = _global_num_unit_normalizer.normalize_solution_payload(current_sol_data)
+
         result = {
             "success": success,
             "final_sol_data": current_sol_data or {},
@@ -19043,6 +19210,7 @@ def solve_orchestrated():
 
     # ASCII render (mevcut engine kullan)
     sol_data = result.get("final_sol_data", {})
+    sol_data = _global_num_unit_normalizer.normalize_solution_payload(sol_data)
     layout = sol_data.get("layout", "default")
     ascii_out = (
         engine.render(layout, sol_data) if "engine" in globals() else str(sol_data)
