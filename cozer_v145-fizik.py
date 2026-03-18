@@ -16565,6 +16565,375 @@ def _render_matplotlib_graph_base64(payload: dict) -> Optional[str]:
             "has_meta_prefix": 1 if re.search(r"^(mekanlar|durumlar|states)\s*[:\-]", t) else 0,
         }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  ADAPTIVE SIMULATION / DRAWING STACK (NLP + Q-LEARNING + TOOL ROUTER)
+# ═══════════════════════════════════════════════════════════════════════════════
+class PhysicsCompositionDSLParser:
+    """Doğal dil fizik/simülasyon isteklerini parametrik bileşenlere ayırır."""
+
+    def _tokenize(self, text: str) -> list:
+        return re.findall(r"[a-zA-ZçğıöşüÇĞİÖŞÜ0-9_]+", (text or "").lower())
+
+    def parse(self, text: str) -> dict:
+        toks = self._tokenize(text)
+        numbers = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", text or "")]
+        verbs = re.findall(r"(simüle|çiz|render|görselleştir|canlandır|hesapla|iterate|step|animate)", (text or "").lower())
+        operator_density = len(re.findall(r"[+\-*/=^∂∇]", text or "")) / max(len(text or ""), 1)
+        spatial_score = sum(1 for t in toks if t in {"2d", "3d", "vektör", "alan", "grid", "mesh", "kare", "küre", "voxel"})
+        temporal_score = sum(1 for t in toks if t in {"zaman", "adım", "iterasyon", "süre", "dt", "anlık", "canlı"})
+        uncertainty_score = sum(1 for t in toks if t in {"stokastik", "rastgele", "gürültü", "noise", "brownian", "sde"})
+
+        components = []
+        if spatial_score > 0:
+            components.append("spatial_field")
+        if temporal_score > 0:
+            components.append("time_evolution")
+        if uncertainty_score > 0:
+            components.append("stochasticity")
+        if any(t in {"akış", "diffusion", "ısı", "dalga", "pde"} for t in toks):
+            components.append("pde_dynamics")
+        if any(t in {"parçacık", "nbody", "particle", "gravity", "çarpışma"} for t in toks):
+            components.append("particle_dynamics")
+        if any(t in {"hücre", "cellular", "otomata", "ca"} for t in toks):
+            components.append("cellular_automata")
+
+        return {
+            "tokens": toks,
+            "numbers": numbers,
+            "operator_density": operator_density,
+            "verb_count": len(verbs),
+            "spatial_score": spatial_score,
+            "temporal_score": temporal_score,
+            "uncertainty_score": uncertainty_score,
+            "components": sorted(set(components)),
+        }
+
+
+class SimulationSandboxManager:
+    """Simülasyon görevleri için kaynak kotası ve güvenlik sınırları."""
+
+    def __init__(self, max_steps: int = 2000, max_particles: int = 100000, max_grid: int = 512):
+        self.max_steps = int(max_steps)
+        self.max_particles = int(max_particles)
+        self.max_grid = int(max_grid)
+
+    def clamp(self, config: dict) -> dict:
+        c = dict(config or {})
+        c["steps"] = min(int(c.get("steps", 120)), self.max_steps)
+        c["particles"] = min(int(c.get("particles", 1000)), self.max_particles)
+        c["grid_size"] = min(int(c.get("grid_size", 64)), self.max_grid)
+        c["dt"] = max(1e-4, float(c.get("dt", 0.05)))
+        return c
+
+
+class ComputeBackendOrchestrator:
+    """CPU/WASM/GPU/REMOTE arka uç seçicisi."""
+
+    def inspect_resources(self) -> dict:
+        cpu_count = os.cpu_count() or 1
+        mem_hint = 8.0
+        try:
+            page = os.sysconf("SC_PAGE_SIZE")
+            pages = os.sysconf("SC_PHYS_PAGES")
+            mem_hint = (page * pages) / (1024**3)
+        except Exception:
+            pass
+        has_cuda = bool(_TORCH_OK and getattr(torch, "cuda", None) and torch.cuda.is_available())
+        return {
+            "cpu_count": cpu_count,
+            "memory_gb": round(float(mem_hint), 2),
+            "has_cuda": has_cuda,
+            "wasm_ready": True,
+            "remote_ready": True,
+        }
+
+    def choose_backend(self, workload: dict) -> dict:
+        resources = self.inspect_resources()
+        w = dict(workload or {})
+        complexity = float(w.get("complexity", 1.0))
+        realtime = float(w.get("realtime_weight", 0.5))
+        frame = int(w.get("frame_budget_ms", 33))
+
+        candidates = ["cpu", "wasm", "gpu", "remote"]
+        scores = {}
+        for name in candidates:
+            base = 0.0
+            if name == "cpu":
+                base = min(1.0, resources["cpu_count"] / 8.0)
+            elif name == "wasm":
+                base = 0.7 if resources["wasm_ready"] else 0.0
+            elif name == "gpu":
+                base = 1.2 if resources["has_cuda"] else 0.05
+            elif name == "remote":
+                base = 0.8 if resources["remote_ready"] else 0.0
+            latency_penalty = 0.35 if (name == "remote" and frame < 25) else 0.0
+            scores[name] = base + complexity * (0.2 if name in {"gpu", "remote"} else 0.08) + realtime * 0.15 - latency_penalty
+
+        chosen = max(scores, key=scores.get)
+        return {"chosen": chosen, "scores": scores, "resources": resources}
+
+
+class SimulationEngineAdapter:
+    """Ortak simülasyon adaptör arayüzü."""
+
+    engine_name = "generic"
+
+    def init(self, config: dict, dsl: dict) -> dict:
+        return {"t": 0.0, "config": dict(config or {}), "dsl": dict(dsl or {}), "series": []}
+
+    def step(self, state: dict, dt: float = 0.05) -> dict:
+        t = float(state.get("t", 0.0)) + float(dt)
+        series = list(state.get("series", []))
+        series.append({"t": t, "y": math.sin(t)})
+        return {**state, "t": t, "series": series[-400:]}
+
+    def snapshot(self, state: dict) -> dict:
+        return {"engine": self.engine_name, "t": state.get("t", 0.0), "series": state.get("series", [])[-120:]}
+
+
+class PDEEngineAdapter(SimulationEngineAdapter):
+    engine_name = "pde"
+
+    def init(self, config: dict, dsl: dict) -> dict:
+        c = dict(config or {})
+        n = int(c.get("grid_size", 64))
+        x = np.linspace(0.0, 1.0, n)
+        u = np.exp(-((x - 0.5) ** 2) / 0.01)
+        return {"t": 0.0, "x": x, "u": u, "alpha": float(c.get("alpha", 0.08)), "config": c}
+
+    def step(self, state: dict, dt: float = 0.01) -> dict:
+        u = np.array(state.get("u"), dtype=float)
+        alpha = float(state.get("alpha", 0.08))
+        lap = np.zeros_like(u)
+        lap[1:-1] = u[:-2] - 2 * u[1:-1] + u[2:]
+        u2 = u + alpha * dt * lap
+        u2[0] = u2[-1] = 0.0
+        return {**state, "u": u2, "t": float(state.get("t", 0.0)) + dt}
+
+    def snapshot(self, state: dict) -> dict:
+        return {"engine": self.engine_name, "t": float(state.get("t", 0.0)), "x": [float(v) for v in state.get("x", [])[:256]], "u": [float(v) for v in state.get("u", [])[:256]]}
+
+
+class ParticleEngineAdapter(SimulationEngineAdapter):
+    engine_name = "particle"
+
+    def init(self, config: dict, dsl: dict) -> dict:
+        c = dict(config or {})
+        n = int(c.get("particles", 300))
+        rng = np.random.default_rng(seed=42)
+        pos = rng.normal(0, 1, size=(n, 2))
+        vel = rng.normal(0, 0.2, size=(n, 2))
+        return {"t": 0.0, "pos": pos, "vel": vel, "drag": float(c.get("drag", 0.02)), "config": c}
+
+    def step(self, state: dict, dt: float = 0.03) -> dict:
+        pos = np.array(state.get("pos"), dtype=float)
+        vel = np.array(state.get("vel"), dtype=float)
+        drag = float(state.get("drag", 0.02))
+        center_force = -0.1 * pos
+        vel = vel + center_force * dt
+        vel *= max(0.0, 1.0 - drag)
+        pos = pos + vel * dt
+        return {**state, "t": float(state.get("t", 0.0)) + dt, "pos": pos, "vel": vel}
+
+    def snapshot(self, state: dict) -> dict:
+        p = np.array(state.get("pos"), dtype=float)
+        return {"engine": self.engine_name, "t": float(state.get("t", 0.0)), "points": p[:600].round(5).tolist()}
+
+
+class CellularAutomataAdapter(SimulationEngineAdapter):
+    engine_name = "cellular_automata"
+
+    def init(self, config: dict, dsl: dict) -> dict:
+        c = dict(config or {})
+        n = int(c.get("grid_size", 80))
+        rng = np.random.default_rng(seed=7)
+        grid = (rng.uniform(0, 1, size=(n, n)) > 0.72).astype(np.int8)
+        return {"t": 0.0, "grid": grid, "config": c}
+
+    def step(self, state: dict, dt: float = 1.0) -> dict:
+        g = np.array(state.get("grid"), dtype=np.int8)
+        nsum = sum(np.roll(np.roll(g, i, axis=0), j, axis=1) for i in (-1, 0, 1) for j in (-1, 0, 1) if not (i == 0 and j == 0))
+        nxt = (((g == 1) & ((nsum == 2) | (nsum == 3))) | ((g == 0) & (nsum == 3))).astype(np.int8)
+        return {**state, "grid": nxt, "t": float(state.get("t", 0.0)) + dt}
+
+    def snapshot(self, state: dict) -> dict:
+        g = np.array(state.get("grid"), dtype=np.int8)
+        return {"engine": self.engine_name, "t": float(state.get("t", 0.0)), "grid": g[:128, :128].tolist()}
+
+
+class ProceduralWorldGenerator:
+    """Minecraft-benzeri height-map / voxel yoğunluk üreticisi."""
+
+    def generate(self, size: int = 96, seed: int = 11) -> dict:
+        size = max(16, min(int(size), 256))
+        rng = np.random.default_rng(seed=seed)
+        x = np.linspace(-2.0, 2.0, size)
+        y = np.linspace(-2.0, 2.0, size)
+        xx, yy = np.meshgrid(x, y)
+        base = np.sin(xx * 2.1) + np.cos(yy * 1.7)
+        noise = rng.normal(0, 0.18, size=(size, size))
+        h = base + noise
+        h = (h - h.min()) / (h.max() - h.min() + 1e-12)
+        voxels = (h > 0.55).astype(np.int8)
+        return {"height_map": h.round(5).tolist(), "voxel_mask": voxels.tolist(), "size": size}
+
+
+class VisualizationStreamOrchestrator:
+    """Snapshot'ları renderer-agnostic frame paketlerine dönüştürür."""
+
+    def build_frame(self, snapshot: dict, renderer: str = "canvas") -> dict:
+        payload = {"renderer": renderer, "timestamp": time.time(), "snapshot": snapshot}
+        payload["delta_hint"] = {"kind": snapshot.get("engine", "generic"), "keys": sorted(list(snapshot.keys()))}
+        return payload
+
+
+class SimulationModelRegistry:
+    """Engine metadata + adaptör kayıt deposu."""
+
+    def __init__(self):
+        self.models = {}
+
+    def register(self, name: str, adapter: SimulationEngineAdapter, metadata: dict):
+        self.models[name] = {"adapter": adapter, "metadata": dict(metadata or {})}
+
+    def describe(self) -> list:
+        return [{"name": n, **row.get("metadata", {})} for n, row in self.models.items()]
+
+    def get(self, name: str) -> dict:
+        return self.models.get(name, {})
+
+
+class NLPSimulationRouter:
+    """NLP + Q-learning hibrit seçici (engine/renderer/backend)."""
+
+    def __init__(self, registry: SimulationModelRegistry, alpha: float = 0.14, gamma: float = 0.86, epsilon: float = 0.1):
+        self.registry = registry
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.q = defaultdict(lambda: defaultdict(float))
+        self.episode = 0
+
+    def _semantic_tokens(self, text: str) -> set:
+        return set(re.findall(r"[a-zA-ZçğıöşüÇĞİÖŞÜ0-9_]+", (text or "").lower()))
+
+    def _state(self, question: str, dsl: dict, resources: dict) -> tuple:
+        toks = self._semantic_tokens(question)
+        return (
+            min(len(toks) // 6, 12),
+            min(int(dsl.get("temporal_score", 0)), 5),
+            min(int(dsl.get("spatial_score", 0)), 5),
+            1 if resources.get("has_cuda") else 0,
+            1 if dsl.get("uncertainty_score", 0) > 0 else 0,
+        )
+
+    def _candidate_actions(self) -> list:
+        renderers = ["ascii", "canvas", "webgl", "svg"]
+        backends = ["cpu", "wasm", "gpu", "remote"]
+        actions = []
+        for item in self.registry.describe():
+            engine = item.get("name")
+            tags = set(item.get("tags", []))
+            for renderer in renderers:
+                if renderer == "webgl" and "high_dim" not in tags and "field" not in tags:
+                    continue
+                for backend in backends:
+                    actions.append((engine, renderer, backend))
+        return actions
+
+    def _action_score(self, action: tuple, question: str, dsl: dict) -> float:
+        engine, renderer, backend = action
+        item = self.registry.get(engine)
+        meta = item.get("metadata", {})
+        q_toks = self._semantic_tokens(question)
+        tag_toks = set(meta.get("tags", []))
+        overlap = len(q_toks & tag_toks)
+        density = float(dsl.get("operator_density", 0.0))
+        temporal = float(dsl.get("temporal_score", 0.0))
+
+        score = 0.5 + overlap * 0.18 + temporal * (0.06 if engine in {"pde", "particle", "cellular_automata"} else 0.03)
+        if density > 0.02 and engine == "pde":
+            score += 0.22
+        if renderer == "ascii":
+            score -= 0.12
+        if backend == "gpu" and "high_dim" in tag_toks:
+            score += 0.2
+        return score
+
+    def route(self, question: str, dsl: dict, backend_info: dict) -> dict:
+        actions = self._candidate_actions()
+        if not actions:
+            return {"engine": "pde", "renderer": "canvas", "backend": "cpu", "reward": 0.0}
+        state = self._state(question, dsl, backend_info.get("resources", {}))
+        if random.random() < self.epsilon or not self.q[state]:
+            action = max(actions, key=lambda a: self._action_score(a, question, dsl))
+        else:
+            action = max(self.q[state], key=self.q[state].get)
+
+        reward = self._action_score(action, question, dsl)
+        current = self.q[state].get(action, 0.0)
+        next_best = max(self.q[state].values()) if self.q[state] else 0.0
+        self.q[state][action] = current + self.alpha * (reward + self.gamma * next_best - current)
+        self.episode += 1
+
+        return {"engine": action[0], "renderer": action[1], "backend": action[2], "reward": round(float(reward), 4), "state": state, "episode": self.episode}
+
+
+class SimulationRuntimeCoordinator:
+    """DSL → router → backend → adapter yürütme koordinatörü."""
+
+    def __init__(self, dsl_parser: PhysicsCompositionDSLParser, sandbox: SimulationSandboxManager,
+                 backend: ComputeBackendOrchestrator, registry: SimulationModelRegistry,
+                 router: NLPSimulationRouter, streamer: VisualizationStreamOrchestrator):
+        self.dsl_parser = dsl_parser
+        self.sandbox = sandbox
+        self.backend = backend
+        self.registry = registry
+        self.router = router
+        self.streamer = streamer
+
+    def build_plan(self, question: str, base_config: dict = None) -> dict:
+        dsl = self.dsl_parser.parse(question)
+        safe_cfg = self.sandbox.clamp(base_config or {})
+        complexity = 1.0 + 0.15 * len(dsl.get("components", [])) + float(dsl.get("operator_density", 0.0)) * 12
+        backend_info = self.backend.choose_backend({"complexity": complexity, "realtime_weight": 0.4 + min(dsl.get("temporal_score", 0), 6) * 0.08, "frame_budget_ms": 33})
+        route = self.router.route(question, dsl, backend_info)
+        world_hint = {}
+        if any(c in dsl.get("components", []) for c in ["spatial_field", "particle_dynamics"]):
+            world_hint = ProceduralWorldGenerator().generate(size=safe_cfg.get("grid_size", 64))
+        return {"dsl": dsl, "config": safe_cfg, "backend": backend_info, "route": route, "world_hint": world_hint}
+
+    def execute_preview(self, plan: dict, preview_steps: int = 12) -> dict:
+        route = plan.get("route", {})
+        engine_name = route.get("engine", "pde")
+        model_row = self.registry.get(engine_name)
+        adapter = model_row.get("adapter") or SimulationEngineAdapter()
+        cfg = plan.get("config", {})
+        dsl = plan.get("dsl", {})
+        state = adapter.init(cfg, dsl)
+        dt = float(cfg.get("dt", 0.05))
+        frames = []
+        for _ in range(max(1, min(int(preview_steps), 40))):
+            state = adapter.step(state, dt)
+            snap = adapter.snapshot(state)
+            frames.append(self.streamer.build_frame(snap, route.get("renderer", "canvas")))
+        return {"engine": engine_name, "renderer": route.get("renderer", "canvas"), "backend": route.get("backend", "cpu"), "frames": frames, "last_snapshot": frames[-1]["snapshot"] if frames else {}}
+
+
+# Global adaptive simulation stack
+_sim_dsl_parser = PhysicsCompositionDSLParser()
+_sim_sandbox = SimulationSandboxManager()
+_sim_backend = ComputeBackendOrchestrator()
+_sim_registry = SimulationModelRegistry()
+_sim_registry.register("pde", PDEEngineAdapter(), {"tags": ["pde", "diffusion", "field", "high_dim", "mesh"]})
+_sim_registry.register("particle", ParticleEngineAdapter(), {"tags": ["particle", "nbody", "gravity", "collision", "high_dim"]})
+_sim_registry.register("cellular_automata", CellularAutomataAdapter(), {"tags": ["cellular", "automata", "grid", "discrete"]})
+_sim_router = NLPSimulationRouter(_sim_registry)
+_sim_streamer = VisualizationStreamOrchestrator()
+_sim_runtime = SimulationRuntimeCoordinator(_sim_dsl_parser, _sim_sandbox, _sim_backend, _sim_registry, _sim_router, _sim_streamer)
+
+
+
 class PlannerLearningMemory:
     """
     Planlayıcı için hafızalı öğrenen scorer.
@@ -18091,6 +18460,30 @@ class RootOrchestrator:
         self._log_phase("INTENT CLASSIFIER", intent)
 
         # ────────────────────────────────────────────────────────────────────
+        # FAZA 2.5: NLP-TABANLI SİMÜLASYON/ÇİZİM PLANLAYICI
+        # ────────────────────────────────────────────────────────────────────
+        sim_runtime = components.get("simulation_runtime")
+        simulation_plan = {}
+        simulation_preview = {}
+        if sim_runtime:
+            try:
+                simulation_plan = sim_runtime.build_plan(
+                    question,
+                    {"steps": 180, "grid_size": 80, "particles": 800, "dt": 0.03},
+                )
+                simulation_preview = sim_runtime.execute_preview(simulation_plan, preview_steps=10)
+                self._log_phase(
+                    "SIMULATION ROUTER",
+                    {
+                        "engine": simulation_preview.get("engine"),
+                        "renderer": simulation_preview.get("renderer"),
+                        "backend": simulation_preview.get("backend"),
+                    },
+                )
+            except Exception as e:
+                self._log_phase("SIMULATION ROUTER", {"error": str(e)[:120]})
+
+        # ────────────────────────────────────────────────────────────────────
         # FAZA 3: SEMANTIC ABSTRACTION — Dependency + Constraint Extraction
         # ────────────────────────────────────────────────────────────────────
         semantic_constraints = sem.build_constraint_block(signals)
@@ -18461,6 +18854,8 @@ class RootOrchestrator:
             "signals": signals,
             "math_ast": math_ast,
             "chosen_solver": chosen_solver,
+            "simulation_plan": simulation_plan,
+            "simulation_preview": simulation_preview,
         }
 
         if explanation_engine:
@@ -18639,6 +19034,7 @@ def solve_orchestrated():
             _explanation_engine if "ExplanationGraphEngine" in globals() else None
         ),
         "eq_universe": eq_universe if "eq_universe" in globals() else None,
+        "simulation_runtime": _sim_runtime if "_sim_runtime" in globals() else None,
     }
 
     # ROOT ORCHESTRATOR çalıştır
@@ -18673,6 +19069,8 @@ def solve_orchestrated():
             "intent": features.get("intent", "?"),
             "reward": adjusted_reward,
             "q_vals": {str(k): float(v) for k, v in (q_vals or {}).items()},
+            "simulation_plan": result.get("simulation_plan", {}),
+            "simulation_preview": result.get("simulation_preview", {}),
         }
     )
 
