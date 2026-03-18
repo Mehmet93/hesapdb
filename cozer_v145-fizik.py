@@ -17196,6 +17196,20 @@ def _decompose_multi_questions(question: str, scorer: PlannerLearningMemory = No
 
     chunks = []
 
+    # 0) Öncelik: numaralı alt-soru listesi (1) / 1. / 1) formatları
+    numbered_matches = list(
+        re.finditer(
+            r"(?:^|\n|\s)(\d{1,2})[\)\.\-:]\s*(.+?)(?=(?:\n|\s)\d{1,2}[\)\.\-:]|\Z)",
+            focus,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    )
+    if numbered_matches:
+        for m in numbered_matches:
+            clean = re.sub(r"\s+", " ", m.group(2) or "").strip(" -,:;")
+            if clean:
+                chunks.append(clean if clean.endswith("?") else clean + "?")
+
     # Gürültü temizleyici: planlayıcıya problem cümlesi yerine gerçek alt-soruları ver
     def _sanitize_chunk(text: str) -> str:
         t = (text or "").strip()
@@ -17228,16 +17242,22 @@ def _decompose_multi_questions(question: str, scorer: PlannerLearningMemory = No
         # Çok kısa ya da yalnızca isim listesi içeren parçaları ele
         if len(t) < 8:
             return False
+        # Çok uzun problem tanım blokları (gerçek alt-soru değil)
+        if len(t) > 220 and not ("?" in t):
+            return False
+        if re.search(r"(aşağıdaki\s+sorular|cevaplayınız|problem[ei]\s*:)", t, re.IGNORECASE):
+            return False
         token_count = len(t.split())
         if token_count <= 2:
             return False
         return True
 
-    # 1) Öncelik: '?' ile biten gerçek soru cümleleri
-    for part in re.split(r"\?\s*", focus):
-        clean = _sanitize_chunk(part)
-        if _is_question_like(clean):
-            chunks.append(clean + "?")
+    # 1) Numaralı eşleşme yoksa '?' ile biten gerçek soru cümleleri
+    if not chunks:
+        for part in re.split(r"\?\s*", focus):
+            clean = _sanitize_chunk(part)
+            if _is_question_like(clean):
+                chunks.append(clean + "?")
 
     # 2) Fallback: hiç soru işareti yoksa satır/bölüm bazlı kırılım
     if not chunks:
@@ -17262,6 +17282,35 @@ def _decompose_multi_questions(question: str, scorer: PlannerLearningMemory = No
         uniq = ranked
 
     return uniq[:24]
+
+
+def _dedupe_steps(existing_steps: list, candidate_steps: list) -> list:
+    """
+    Mevcut adımlarla anlamsal olarak tekrar eden planner adımlarını eler.
+    """
+    def _norm(s: str) -> str:
+        s = (s or "").lower()
+        s = re.sub(r"[^\wçğıöşü\s]", " ", s, flags=re.UNICODE)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+
+    existing_signatures = set()
+    for st in existing_steps or []:
+        sig = _norm((st.get("title", "") + " " + st.get("content", "")).strip())
+        if sig:
+            existing_signatures.add(sig)
+
+    filtered = []
+    for st in candidate_steps or []:
+        sig = _norm((st.get("title", "") + " " + st.get("content", "")).strip())
+        if not sig:
+            continue
+        # Tam tekrar veya kuvvetli alt-kapsama tekrarını atla
+        is_duplicate = any(sig in ex or ex in sig for ex in existing_signatures)
+        if not is_duplicate:
+            filtered.append(st)
+            existing_signatures.add(sig)
+    return filtered
 
 
 def _planner_topic_title(sub_question: str, i: int, total: int, intent: str) -> str:
@@ -17309,18 +17358,59 @@ def _planner_topic_title(sub_question: str, i: int, total: int, intent: str) -> 
     return f"{prefix} ({i}/{total}) — {topic[:44]}"
 
 
-def _build_planner_steps(sub_questions: list, route_features: dict) -> list:
+def _extract_planner_prob_facts(question: str) -> dict:
+    """
+    Soru metninden planlayıcıda kullanılabilecek temel olasılık sabitlerini çıkarır.
+    """
+    q = (question or "").lower()
+    facts = {}
+    m_pre_entry = re.search(
+        r"kulübeye\s+girmeden\s+önce\s+öld[üuğg].{0,25}?(0?\.\d+|\d{1,3}\s*%)",
+        q,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if m_pre_entry:
+        raw = m_pre_entry.group(1).replace(" ", "")
+        if raw.endswith("%"):
+            p = float(raw[:-1]) / 100.0
+        else:
+            p = float(raw)
+        if 0.0 <= p <= 1.0:
+            facts["p_death_before_entry"] = p
+            facts["p_entry_before_death"] = round(1.0 - p, 6)
+    return facts
+
+
+def _build_planner_steps(sub_questions: list, route_features: dict, question: str = "") -> list:
     """Planlayıcı çıktısını adım listesi formatında döndürür."""
     steps = []
     total = len(sub_questions)
     intent = route_features.get("intent", "general")
+    facts = _extract_planner_prob_facts(question)
     for i, sq in enumerate(sub_questions, 1):
+        sq_l = (sq or "").lower()
+        formula = ""
+        result = ""
+        if "kulübeye girdi" in sq_l and "p_death_before_entry" in facts:
+            p = facts["p_death_before_entry"]
+            pe = facts["p_entry_before_death"]
+            formula = "P(kulübeye_girdi) = 1 - P(kulübeye_girmeden_önce_ölüm)"
+            result = f"1 - {p:.6f} = {pe:.6f}"
+        elif "kulübe dışında" in sq_l and "p_death_before_entry" in facts:
+            p = facts["p_death_before_entry"]
+            formula = "P(kulübe_dışında_ölüm) = P(kulübeye_girmeden_önce_ölüm)"
+            result = f"{p:.6f}"
+        elif "kulübede" in sq_l and "p_entry_before_death" in facts:
+            pe = facts["p_entry_before_death"]
+            formula = "P(kulübede_ölüm) ≤ P(kulübeye_girdi)"
+            result = f"≤ {pe:.6f}"
+
         steps.append(
             {
                 "title": _planner_topic_title(sq, i, total, intent),
                 "content": sq,
-                "formula": "",
-                "result": "",
+                "formula": formula,
+                "result": result,
                 "_planner_step": True,
             }
         )
@@ -17354,7 +17444,7 @@ def solve():
     # ── 2. Q-Learning Route — semantic sinyaller state'e dahil ───────────────
     layout, features, reward, q_vals = router.route(question, signals)
     sub_questions = _decompose_multi_questions(question, scorer=_planner_memory)
-    planner_steps = _build_planner_steps(sub_questions, features)
+    planner_steps = _build_planner_steps(sub_questions, features, question=question)
 
     # ── 3. Ollama — solver hint + constraint prompt + consistency loop ────────
     sol_data = ollama.solve(question, signals, sem, scorer, solver_ctx, eq_ctx=eq_ctx)
@@ -17362,11 +17452,20 @@ def solve():
     sol_data["layout"] = layout
     if planner_steps:
         sol_data.setdefault("steps", [])
-        sol_data["steps"] = planner_steps + sol_data["steps"]
+        # Mevcut çözüm adımları varken planlayıcıyı körlemesine prepend etme:
+        # tekrar eden, soru-metnini kopyalayan ve hesap içermeyen adımları azalt.
+        planner_unique = _dedupe_steps(sol_data["steps"], planner_steps)
+        if not sol_data["steps"]:
+            sol_data["steps"] = planner_unique
+        else:
+            # Çözüm adımlarını koru; planner çıktısını yalnızca yardımcı outline olarak taşı.
+            sol_data["_planner_outline"] = planner_unique
+            if planner_unique:
+                sol_data["steps"] = planner_unique[:2] + sol_data["steps"]
         sol_data["_multi_question_count"] = len(sub_questions)
         sol_data.setdefault(
             "explanation",
-            "Soru metni çoklu-alt-soru planlayıcısı ile ayrıştırıldı ve çözüm adımları birleştirildi.",
+            "Soru metni çoklu-alt-soru planlayıcısı ile ayrıştırıldı; yinelenen adımlar ayıklandı.",
         )
 
     # ── 3.5. StepDependencyGraph + NumericTruthValidator ──────────────────────
