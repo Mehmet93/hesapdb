@@ -5782,6 +5782,158 @@ class NumericSymbolicUnitNormalizer:
 
 _global_num_unit_normalizer = NumericSymbolicUnitNormalizer(precision=8)
 
+
+class ArithmeticAccuracyScorer:
+    """
+    Formül/kelime bağımsız aritmetik doğruluk denetçisi.
+    - Adımlardan denklem/atama çıkarır.
+    - Sembolik bağıntıları olabildiğince sayısal değerlere indirger.
+    - Sonuç metnindeki değerlerle karşılaştırır, skorlama ve düzeltme üretir.
+    """
+
+    def __init__(self, rel_tol: Decimal = Decimal("1e-6"), abs_tol: Decimal = Decimal("1e-8")):
+        self.rel_tol = Decimal(rel_tol)
+        self.abs_tol = Decimal(abs_tol)
+
+    def _norm_expr(self, expr: str) -> str:
+        t = (expr or "")
+        t = t.replace("×", "*").replace("÷", "/").replace("^", "**").replace("π", "pi")
+        t = t.replace("−", "-")
+        t = re.sub(r"\bpi\b", "pi", t)
+        return t.strip()
+
+    def _extract_assignments(self, text: str) -> list:
+        if not text:
+            return []
+        t = self._norm_expr(text)
+        out = []
+        for m in re.finditer(
+            r"([A-Za-z_α-ωΑ-Ω][A-Za-z0-9_α-ωΑ-Ω]*)\s*=\s*([^=\n]+)", t
+        ):
+            lhs = m.group(1).strip()
+            rhs = m.group(2).strip()
+            rhs = rhs.split("→")[0].strip()
+            rhs = rhs.split("≈")[0].strip()
+            out.append((lhs, rhs))
+        return out
+
+    def _first_number(self, text: str) -> Decimal | None:
+        if not text:
+            return None
+        m = re.search(r"[-+]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:[eE][-+]?\d+)?", str(text))
+        if not m:
+            return None
+        return _global_num_unit_normalizer._to_decimal(m.group(0))
+
+    def _safe_eval(self, expr: str, symbol_table: dict) -> Decimal | None:
+        expr_n = self._norm_expr(expr)
+        if not expr_n:
+            return None
+        if _SYMPY_OK:
+            try:
+                locals_map = {"pi": sp.pi, "e": sp.E, "sqrt": sp.sqrt}
+                for k, v in symbol_table.items():
+                    locals_map[str(k)] = sp.Float(str(v))
+                val = sp.N(sp.sympify(expr_n, locals=locals_map, evaluate=True), 70)
+                free = getattr(val, "free_symbols", set())
+                if free:
+                    return None
+                if not bool(val.is_real):
+                    return None
+                return Decimal(str(val))
+            except Exception:
+                return None
+        # sympy yoksa sadece sayısal güvenli eval
+        if not re.fullmatch(r"[0-9eE+\-*/().\s]+", expr_n):
+            return None
+        try:
+            return Decimal(str(eval(expr_n, {"__builtins__": {}}, {})))
+        except Exception:
+            return None
+
+    def _score_pair(self, expected: Decimal, observed: Decimal | None) -> tuple:
+        if observed is None:
+            return Decimal("0.7"), "observed_missing"
+        delta = abs(expected - observed)
+        rel = delta / (abs(observed) + Decimal("1e-20"))
+        if delta <= self.abs_tol or rel <= self.rel_tol:
+            return Decimal("1.0"), "ok"
+        # Kademeli skor (hard-threshold yerine sürekli)
+        penalty = min(Decimal("1"), (rel.ln() + Decimal("1")) / Decimal("6")) if rel > 0 else Decimal("0")
+        score = max(Decimal("0"), Decimal("1") - penalty)
+        return score, f"mismatch rel={rel:.3E}"
+
+    def audit_solution(self, sol_data: dict) -> dict:
+        d = dict(sol_data or {})
+        steps = [dict(x) for x in (d.get("steps") or [])]
+        symbol_table = {}
+        step_scores = []
+        notes = []
+
+        # Kök metinden sayılar/atamalar yakala
+        root_blob = " ".join(str(d.get(k, "")) for k in ("formula", "numeric", "answer"))
+        for lhs, rhs in self._extract_assignments(root_blob):
+            val = self._safe_eval(rhs, symbol_table)
+            if val is not None:
+                symbol_table[lhs] = val
+
+        for i, st in enumerate(steps, 1):
+            formula = str(st.get("formula", "") or "")
+            result_text = str(st.get("result", "") or "")
+            content = str(st.get("content", "") or "")
+            assigns = self._extract_assignments(formula) + self._extract_assignments(content)
+
+            if not assigns:
+                obs = self._first_number(result_text)
+                if obs is not None:
+                    step_scores.append(Decimal("0.75"))
+                    st["_arith_score"] = 0.75
+                else:
+                    step_scores.append(Decimal("0.5"))
+                    st["_arith_score"] = 0.5
+                steps[i - 1] = st
+                continue
+
+            local_scores = []
+            for lhs, rhs in assigns:
+                calc = self._safe_eval(rhs, symbol_table)
+                if calc is None:
+                    local_scores.append(Decimal("0.45"))
+                    continue
+
+                symbol_table[lhs] = calc
+                observed = self._first_number(result_text)
+                sc, reason = self._score_pair(calc, observed)
+                local_scores.append(sc)
+
+                # Otomatik düzeltme: belirgin sapma varsa sonucu güncelle
+                if sc < Decimal("0.92"):
+                    fmt = _global_num_unit_normalizer._format_decimal(calc)
+                    st["result"] = fmt
+                    notes.append(f"[ARITH-FIX] Step {i}: {lhs} => {fmt} ({reason})")
+                elif not result_text.strip():
+                    st["result"] = _global_num_unit_normalizer._format_decimal(calc)
+
+            step_score = sum(local_scores) / Decimal(len(local_scores))
+            step_scores.append(step_score)
+            st["_arith_score"] = float(round(step_score, 6))
+            steps[i - 1] = st
+
+        overall = (sum(step_scores) / Decimal(len(step_scores))) if step_scores else Decimal("0")
+        pct = float((overall * Decimal("100")).quantize(Decimal("0.01")))
+
+        d["steps"] = steps
+        d["_arithmetic_step_scores"] = [float(round(x, 6)) for x in step_scores]
+        d["_arithmetic_accuracy"] = pct
+        d["_arithmetic_notes"] = notes
+        d["_arithmetic_grade"] = (
+            "A" if pct >= 95 else "B" if pct >= 85 else "C" if pct >= 70 else "D"
+        )
+        return d
+
+
+_global_arith_scorer = ArithmeticAccuracyScorer()
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ARITHMETIC PRECISION VALIDATOR — Tüm aritmetik adımlar için yüksek doğruluk
 #  Amaç: eksi/mertebe hatalarını otomatik düzeltmek, içsel tutarsızlıkları yakalamak
@@ -17445,6 +17597,7 @@ def solve():
 
     # ── 5. Çözüm normalizasyonu (negatif/sayı-sembolik/birim) ───────────────
     sol_data = _global_num_unit_normalizer.normalize_solution_payload(sol_data)
+    sol_data = _global_arith_scorer.audit_solution(sol_data)
 
     # ── 6. ASCII render ───────────────────────────────────────────────────────
     ascii_out = engine.render(layout, sol_data)
@@ -19004,6 +19157,7 @@ class RootOrchestrator:
 
         if current_sol_data:
             current_sol_data = _global_num_unit_normalizer.normalize_solution_payload(current_sol_data)
+            current_sol_data = _global_arith_scorer.audit_solution(current_sol_data)
 
         result = {
             "success": success,
@@ -19215,6 +19369,7 @@ def solve_orchestrated():
     # ASCII render (mevcut engine kullan)
     sol_data = result.get("final_sol_data", {})
     sol_data = _global_num_unit_normalizer.normalize_solution_payload(sol_data)
+    sol_data = _global_arith_scorer.audit_solution(sol_data)
     layout = sol_data.get("layout", "default")
     ascii_out = (
         engine.render(layout, sol_data) if "engine" in globals() else str(sol_data)
@@ -19243,6 +19398,10 @@ def solve_orchestrated():
             "q_vals": {str(k): float(v) for k, v in (q_vals or {}).items()},
             "simulation_plan": result.get("simulation_plan", {}),
             "simulation_preview": result.get("simulation_preview", {}),
+            "arithmetic_accuracy": float(sol_data.get("_arithmetic_accuracy", 0.0)),
+            "arithmetic_grade": str(sol_data.get("_arithmetic_grade", "D")),
+            "arithmetic_step_scores": sol_data.get("_arithmetic_step_scores", []),
+            "arithmetic_notes": sol_data.get("_arithmetic_notes", []),
         }
     )
 
