@@ -17497,6 +17497,10 @@ def solve():
                 if isinstance(graph_payload, dict)
                 else None
             ),
+            "arithmetic_accuracy": float(sol_data.get("_arithmetic_accuracy", 0.0)),
+            "arithmetic_grade": str(sol_data.get("_arithmetic_grade", "D")),
+            "arithmetic_step_scores": sol_data.get("_arithmetic_step_scores", []),
+            "arithmetic_notes": sol_data.get("_arithmetic_notes", []),
         }
     )
 
