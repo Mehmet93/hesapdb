@@ -8633,6 +8633,9 @@ class OllamaClient:
         def _merge_answer(ans, numeric):
             # Cevap boşsa veya sembolikse, numerik özeti ekle
             if not numeric:
+                # LLM "None" / boş döndüyse adımlardan en güçlü sonucu türet
+                if ans is None or str(ans).strip().lower() in {"", "none", "null", "?"}:
+                    return ""
                 return ans
             numeric_str = (
                 " | ".join(f"{k}: {v}" for k, v in numeric.items())
@@ -8646,6 +8649,30 @@ class OllamaClient:
             if numeric_str and numeric_str not in ans_str:
                 return f"{ans_str} | {numeric_str}"
             return ans
+
+        def _fallback_answer_from_steps(steps: list) -> str:
+            """
+            Nihai cevap boş/None ise adımlardan kısa özet üret.
+            Hard-code soru tipine bağlı değildir; yalnızca mevcut adım sonuçlarını kullanır.
+            """
+            picks = []
+            for st in reversed(steps or []):
+                if st.get("_planner_step"):
+                    continue
+                title = str(st.get("title", "")).strip()
+                result = str(st.get("result", "")).strip()
+                if not result:
+                    result = _first_numeric(
+                        " ".join(str(st.get(k, "")) for k in ("formula", "content"))
+                    ).strip()
+                if result:
+                    label = title[:64] if title else "Sonuç"
+                    picks.append(f"{label}: {result}")
+                if len(picks) >= 2:
+                    break
+            if not picks:
+                return "Hesaplandı (detaylar adımlarda)."
+            return " | ".join(reversed(picks))
 
         steps = sol_data.get("steps") or []
         bound_steps = []
@@ -8677,6 +8704,11 @@ class OllamaClient:
 
         # Nihai cevap alanı
         sol_data["answer"] = _merge_answer(sol_data.get("answer"), sol_data.get("numeric"))
+        if (
+            sol_data.get("answer") is None
+            or str(sol_data.get("answer", "")).strip().lower() in {"", "none", "null", "?"}
+        ):
+            sol_data["answer"] = _fallback_answer_from_steps(sol_data.get("steps") or [])
         return sol_data
 
     def solve(
@@ -16322,18 +16354,55 @@ def _decompose_multi_questions(question: str) -> list:
 
     chunks = []
 
+    # Gürültü temizleyici: planlayıcıya problem cümlesi yerine gerçek alt-soruları ver
+    def _sanitize_chunk(text: str) -> str:
+        t = (text or "").strip()
+        if not t:
+            return ""
+
+        # "soru1:", "q2-" vb. etiketleri kaldır
+        t = re.sub(r"^\s*(?:soru|q)\s*\d+\s*[:\-]\s*", "", t, flags=re.IGNORECASE)
+        # "eğer, soru1:" gibi iç etiketleri ayıkla
+        t = re.sub(
+            r"\b(?:soru|q)\s*\d+\s*[:\-]\s*", "", t, flags=re.IGNORECASE
+        ).strip()
+        # Bayes başlık kalıplarını adım metninden çıkart (soru bağımsız)
+        t = re.sub(
+            r"^\s*bayes\s+teoremi\s*\([^)]*\)\s*soru\s*[:\-]?\s*",
+            "",
+            t,
+            flags=re.IGNORECASE,
+        ).strip()
+        t = re.sub(r"\s+", " ", t).strip(" -,:;")
+        return t
+
+    def _is_question_like(text: str) -> bool:
+        t = (text or "").strip()
+        if not t:
+            return False
+        # "mekanlar: ..." gibi veri tanımı satırlarını plan adımı yapma
+        if re.search(r"^\s*(mekanlar?|durumlar?|states?)\s*[:\-]", t, re.IGNORECASE):
+            return False
+        # Çok kısa ya da yalnızca isim listesi içeren parçaları ele
+        if len(t) < 8:
+            return False
+        token_count = len(t.split())
+        if token_count <= 2:
+            return False
+        return True
+
     # 1) Öncelik: '?' ile biten gerçek soru cümleleri
     for part in re.split(r"\?\s*", focus):
-        clean = re.sub(r"^\s*soru\d*\s*:\s*", "", part.strip(), flags=re.IGNORECASE)
-        if len(clean) >= 8:
+        clean = _sanitize_chunk(part)
+        if _is_question_like(clean):
             chunks.append(clean + "?")
 
     # 2) Fallback: hiç soru işareti yoksa satır/bölüm bazlı kırılım
     if not chunks:
         raw_parts = re.split(r"(?:\n+|(?=soru\d*\s*:))", focus, flags=re.IGNORECASE)
         for part in raw_parts:
-            clean = re.sub(r"^\s*soru\d*\s*:\s*", "", part.strip(), flags=re.IGNORECASE)
-            if len(clean) >= 12:
+            clean = _sanitize_chunk(part)
+            if _is_question_like(clean) and len(clean) >= 12:
                 chunks.append(clean if clean.endswith("?") else clean + "?")
 
     # Aynı parçaları tekilleştir (sıra korunur)
