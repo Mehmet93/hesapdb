@@ -15558,6 +15558,7 @@ createApp({
       }
 
       const labels = (payload && payload.labels) ? payload.labels.slice(0, 8) : ['hazır'];
+      const q = (payload && payload.quality) ? payload.quality : null;
       ctx.fillStyle = theme.text;
       ctx.font = '12px JetBrains Mono';
       labels.forEach((lb, i) => {
@@ -16512,6 +16513,23 @@ _graph_agent = GraphSimulationAgent()
 def _build_graph_automaton_payload(question: str, sol_data: dict, width: int = 560, height: int = 320) -> dict:
     return _graph_agent.build_payload(question, sol_data, width, height)
 
+    def _save(self):
+        try:
+            with open(self.MEMORY_PATH, "wb") as f:
+                pickle.dump({"weights": dict(self.weights), "episode": self.episode}, f)
+        except Exception:
+            pass
+
+    def features(self, text: str) -> dict:
+        t = (text or "").strip().lower()
+        toks = [x for x in re.findall(r"[a-zçğıöşü0-9]+", t) if x]
+        return {
+            "len": min(len(toks), 16),
+            "has_qmark": 1 if "?" in t else 0,
+            "has_numeric": 1 if re.search(r"\d", t) else 0,
+            "has_verb": 1 if re.search(r"(mi|mı|mu|mü|nedir|kaç|hangi|hesap|bul|çiz|göster)", t) else 0,
+            "has_meta_prefix": 1 if re.search(r"^(mekanlar|durumlar|states)\s*[:\-]", t) else 0,
+        }
 
 class PlannerLearningMemory:
     """
@@ -16873,6 +16891,8 @@ def solve():
     else:
         full_ascii = ascii_out + "\n\n" + q_box + "\n\n" + sem_box + "\n\n" + solver_box
 
+    graph_payload = _build_graph_automaton_payload(question, sol_data)
+
     return jsonify(
         {
             "ascii": full_ascii,
@@ -16900,7 +16920,12 @@ def solve():
             "question": question,
             "steps": sol_data.get("steps", []),
             "formula": str(sol_data.get("formula", "")),
-            "graph_data": _build_graph_automaton_payload(question, sol_data),
+            "graph_data": graph_payload,
+            "graph_score": (
+                graph_payload.get("quality", {}).get("score")
+                if isinstance(graph_payload, dict)
+                else None
+            ),
         }
     )
 
