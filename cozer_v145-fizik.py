@@ -15588,12 +15588,14 @@ createApp({
       }
 
       const labels = (payload && payload.labels) ? payload.labels.slice(0, 8) : ['hazır'];
+      const q = (payload && payload.quality) ? payload.quality : null;
       ctx.fillStyle = theme.text;
       ctx.font = '12px JetBrains Mono';
       labels.forEach((lb, i) => {
         ctx.fillText('• ' + lb, 12, 18 + i * 14);
       });
-      ctx.fillText(`mode:${mode.id} ${mode.coord}/${mode.style} · catalog:${(payload && payload.mode_catalog_size) || 0}`, 12, h - 8);
+      const qualityText = q ? ` · graph_score:${q.score}` : '';
+      ctx.fillText(`mode:${mode.id} ${mode.coord}/${mode.style} · catalog:${(payload && payload.mode_catalog_size) || 0}${qualityText}`, 12, h - 8);
     },
 
 
@@ -16420,15 +16422,29 @@ class GraphSimulationAgent:
         )
         text = text.replace("−", "-").replace("^", "**")
 
-        # y = ...
-        m = re.search(r"\by\s*=\s*([^\n,;]+)", text, flags=re.IGNORECASE)
-        if m:
-            return m.group(1).strip()
+        def _clean_expr(raw: str) -> str:
+            # Formel olmayan kelimeleri ayır: sadece matematiksel karakter kümesi
+            keep = re.findall(r"[0-9xX\(\)\+\-\*/\.\s\*]+", raw or "")
+            expr = "".join(keep).strip()
+            expr = re.sub(r"\s+", "", expr)
+            return expr
 
-        # ... = 0  biçiminden f(x) çıkar
-        m2 = re.search(r"([A-Za-z0-9xX\(\)\+\-\*/\s\.]+)=\s*0", text)
-        if m2:
-            return m2.group(1).strip()
+        # 1) y = f(x)
+        for m in re.finditer(r"\by\s*=\s*([^\n,;]+)", text, flags=re.IGNORECASE):
+            cand = _clean_expr(m.group(1))
+            if "x" in cand.lower() and re.search(r"[\+\-\*/]", cand):
+                return cand
+
+        # 2) f(x)=0 biçimi
+        for m in re.finditer(r"([^=\n,;:]{1,80})=\s*0\b", text):
+            cand = _clean_expr(m.group(1))
+            if "x" in cand.lower() and re.search(r"[\+\-\*/]", cand):
+                return cand
+
+        # 3) metin içinde serbest ifade adayları
+        for tok in re.findall(r"[0-9xX\(\)\+\-\*/\.]{5,}", text):
+            if "x" in tok.lower() and re.search(r"[\+\-\*/]", tok):
+                return tok
         return ""
 
     def _sample_expression_series(self, expr: str) -> tuple[list, dict]:
@@ -16590,6 +16606,46 @@ class GraphSimulationAgent:
         if self.episode % 5 == 0:
             self._save()
 
+    def _quality_score(self, curve: list, axes: dict, expr_mode: bool) -> dict:
+        """
+        Soru şablonundan bağımsız grafik kalite puanı.
+        """
+        if not curve:
+            return {"score": 0.0, "components": {"points": 0, "coverage": 0, "continuity": 0, "axes": 0}}
+
+        pts = len(curve)
+        points_score = min(1.0, pts / 80.0)
+
+        xs = [p["x"] for p in curve]
+        ys = [p["y"] for p in curve]
+        x_cov = (max(xs) - min(xs)) / max(1.0, axes.get("xmax", 1) - axes.get("xmin", 0))
+        y_cov = (max(ys) - min(ys)) / max(1.0, axes.get("ymax", 1) - axes.get("ymin", 0))
+        coverage_score = min(1.0, 0.5 * (abs(x_cov) + abs(y_cov)))
+
+        jumps = []
+        for i in range(1, len(curve)):
+            dx = curve[i]["xn"] - curve[i - 1]["xn"]
+            dy = curve[i]["yn"] - curve[i - 1]["yn"]
+            jumps.append(math.sqrt(dx * dx + dy * dy))
+        mean_jump = sum(jumps) / max(1, len(jumps))
+        continuity_score = max(0.0, 1.0 - min(1.0, mean_jump * 8.0))
+
+        has_axes = 1.0 if all(k in axes for k in ("xmin", "xmax", "ymin", "ymax")) else 0.0
+        axes_score = has_axes * (1.0 if axes.get("xmax", 0) > axes.get("xmin", 0) else 0.0)
+
+        base = 0.26 * points_score + 0.29 * coverage_score + 0.27 * continuity_score + 0.18 * axes_score
+        if expr_mode:
+            base = min(1.0, base + 0.08)
+        return {
+            "score": round(base * 100, 2),
+            "components": {
+                "points": round(points_score, 4),
+                "coverage": round(coverage_score, 4),
+                "continuity": round(continuity_score, 4),
+                "axes": round(axes_score, 4),
+            },
+        }
+
     def build_payload(self, question: str, sol_data: dict, width: int, height: int) -> dict:
         series, labels, axes_meta = self._series_from_solution(question, sol_data)
         state = self._state(question, sol_data)
@@ -16667,6 +16723,16 @@ class GraphSimulationAgent:
                 "agent_episode": self.episode,
                 "expr_mode": bool(axes_meta.get("source") == "expression"),
             },
+            "quality": self._quality_score(
+                curve=curve,
+                axes={
+                    "xmin": float(axes_meta.get("xmin", 0.0)),
+                    "xmax": float(axes_meta.get("xmax", max(1, n - 1))),
+                    "ymin": float(axes_meta.get("ymin", ymin)),
+                    "ymax": float(axes_meta.get("ymax", ymax)),
+                },
+                expr_mode=bool(axes_meta.get("source") == "expression"),
+            ),
         }
 
 
@@ -17037,6 +17103,8 @@ def solve():
     else:
         full_ascii = ascii_out + "\n\n" + q_box + "\n\n" + sem_box + "\n\n" + solver_box
 
+    graph_payload = _build_graph_automaton_payload(question, sol_data)
+
     return jsonify(
         {
             "ascii": full_ascii,
@@ -17064,7 +17132,12 @@ def solve():
             "question": question,
             "steps": sol_data.get("steps", []),
             "formula": str(sol_data.get("formula", "")),
-            "graph_data": _build_graph_automaton_payload(question, sol_data),
+            "graph_data": graph_payload,
+            "graph_score": (
+                graph_payload.get("quality", {}).get("score")
+                if isinstance(graph_payload, dict)
+                else None
+            ),
         }
     )
 
