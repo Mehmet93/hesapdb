@@ -8390,6 +8390,7 @@ class CloudUniversalEquationRepository:
 
     def __init__(self):
         self.db = self._ensure_db()
+        self.retriever = FormulaSemanticRetriever(self.db)
 
     def _ensure_db(self):
         """30 günde bir cloud'dan yeniler, yoksa local cache."""
@@ -8427,65 +8428,183 @@ class CloudUniversalEquationRepository:
             }
 
     def query(self, question: str) -> dict:
-        """Soru metninden ilgili kategorileri otomatik filtreler."""
-        q = question.lower()
-        result = {
+        """
+        Soru metninden ilgili denklemleri tamamen indeks-tabanlı seçer.
+        Hard-coded kategori/anahtar kelime listesi içermez.
+        """
+        retrieved = self.retriever.retrieve(question, top_k=24, min_score=0.08)
+        equations = {}
+        for item in retrieved:
+            cat = item["category"]
+            key = item["key"]
+            val = item["payload"]
+            bucket = equations.setdefault(cat, {})
+            bucket[key] = val
+
+        return {
             "constants": self.db.get("constants", {}),
-            "equations": {},
-            "metadata": {"last_updated": datetime.datetime.now().isoformat()},
+            "equations": equations,
+            "metadata": {
+                "last_updated": datetime.datetime.now().isoformat(),
+                "retrieved_items": len(retrieved),
+                "retriever": "FormulaSemanticRetriever-v2",
+                "top_categories": [x["category"] for x in retrieved[:6]],
+            },
         }
-
-        # ── Semantic keyword match (modüler, yeni kategori eklemek 1 satır) ──
-        if any(
-            kw in q
-            for kw in [
-                "ışık",
-                "hız",
-                "c=",
-                "relativite",
-                "einstein",
-                "kara delik",
-                "schwarzschild",
-            ]
-        ):
-            result["equations"].update(self.db.get("gr_astrophysics", {}))
-        if any(kw in q for kw in ["serway", "newton", "mekanik", "kuvvet", "enerji"]):
-            result["equations"].update(self.db.get("serway", {}))
-        if any(
-            kw in q for kw in ["kuantum", "planck", "schrodinger", "heisenberg", "spin"]
-        ):
-            result["equations"].update(self.db.get("quantum", {}))
-        if any(
-            kw in q
-            for kw in ["pde", "diferansiyel", "dalga", "heat", "laplace", "navier"]
-        ):
-            result["equations"].update(self.db.get("pde", {}))
-        if any(kw in q for kw in ["kaos", "logistic", "lorenz", "r_kaos", "x_n+1"]):
-            result["equations"].update(self.db.get("chaos", {}))
-        if any(
-            kw in q
-            for kw in [
-                "biyoloji",
-                "nüfus",
-                "dN/dt",
-                "logistic growth",
-                "taşıma kapasitesi",
-            ]
-        ):
-            result["equations"].update(self.db.get("biology", {}))
-        if any(
-            kw in q
-            for kw in ["finans", "black scholes", "option", "stok", "volatilite"]
-        ):
-            result["equations"].update(self.db.get("finance", {}))
-        if any(kw in q for kw in ["biyokimya", "enzim", "michaelis", "dna", "protein"]):
-            result["equations"].update(self.db.get("biochemistry", {}))
-
-        return result
 
     def get_all(self) -> dict:
         """Tüm DB (nadiren kullanılır)."""
         return self.db
+
+
+class FormulaSemanticRetriever:
+    """
+    Cloud JSON'dan kategori + denklem dizini üretir ve sorguya göre skorlar.
+    - Hard-coded konu listesi yok.
+    - Kategori/denklem adları + açıklama + formül + birim metnini birlikte tarar.
+    - Basit Q-learning benzeri pekiştirme belleği ile token→kategori ağırlığı günceller.
+    """
+
+    _STOPWORDS = {
+        "ve",
+        "ile",
+        "için",
+        "the",
+        "and",
+        "bir",
+        "olan",
+        "gibi",
+        "soru",
+        "problem",
+        "hesapla",
+        "bul",
+        "kaç",
+        "nedir",
+    }
+
+    def __init__(self, db: dict):
+        self.db = db or {}
+        self.entries = []
+        self.cat_tokens = defaultdict(set)
+        self.token_df = defaultdict(int)
+        self.category_bias = defaultdict(float)
+        self._build_index()
+
+    def _tokenize(self, text: str) -> list:
+        if not text:
+            return []
+        words = re.findall(r"[a-zA-ZçğıöşüÇĞİÖŞÜ0-9_+\-/=^.]+", str(text).lower())
+        return [w for w in words if len(w) > 1 and w not in self._STOPWORDS]
+
+    def _collect_text(self, category: str, key: str, payload) -> str:
+        parts = [category, key]
+        if isinstance(payload, dict):
+            for v in payload.values():
+                if isinstance(v, (str, int, float)):
+                    parts.append(str(v))
+                elif isinstance(v, dict):
+                    parts.extend(str(x) for x in v.values() if isinstance(x, (str, int, float)))
+                elif isinstance(v, list):
+                    parts.extend(str(x) for x in v if isinstance(x, (str, int, float)))
+        elif isinstance(payload, list):
+            parts.extend(str(x) for x in payload if isinstance(x, (str, int, float)))
+        else:
+            parts.append(str(payload))
+        return " ".join(parts)
+
+    def _iter_equations(self):
+        for category, content in (self.db or {}).items():
+            if category in {"version", "metadata", "constants"}:
+                continue
+            if isinstance(content, dict):
+                for key, payload in content.items():
+                    yield category, str(key), payload
+            elif isinstance(content, list):
+                for i, payload in enumerate(content):
+                    yield category, f"item_{i+1}", payload
+            else:
+                yield category, "value", content
+
+    def _build_index(self):
+        self.entries = []
+        self.cat_tokens = defaultdict(set)
+        self.token_df = defaultdict(int)
+
+        for category, key, payload in self._iter_equations():
+            blob = self._collect_text(category, key, payload)
+            toks = self._tokenize(blob)
+            if not toks:
+                continue
+            token_set = set(toks)
+            self.entries.append(
+                {
+                    "category": category,
+                    "key": key,
+                    "payload": payload,
+                    "tokens": token_set,
+                    "text_len": len(blob),
+                }
+            )
+            self.cat_tokens[category].update(token_set)
+
+        for token_set in self.cat_tokens.values():
+            for t in token_set:
+                self.token_df[t] += 1
+
+    def _idf(self, token: str) -> float:
+        n_cat = max(len(self.cat_tokens), 1)
+        df = self.token_df.get(token, 0)
+        return math.log((1.0 + n_cat) / (1.0 + df)) + 1.0
+
+    def _category_score(self, q_tokens: set, category: str) -> float:
+        cset = self.cat_tokens.get(category, set())
+        if not q_tokens or not cset:
+            return 0.0
+        overlap = q_tokens & cset
+        if not overlap:
+            return 0.0
+        weighted = sum(self._idf(t) for t in overlap)
+        norm = math.sqrt(len(q_tokens) * len(cset))
+        return (weighted / (norm + 1e-9)) + self.category_bias.get(category, 0.0)
+
+    def _entry_score(self, q_tokens: set, entry: dict, cat_score: float) -> float:
+        overlap = q_tokens & entry["tokens"]
+        if not overlap:
+            return 0.0
+        lexical = sum(self._idf(t) for t in overlap) / (len(q_tokens) + 1e-9)
+        key_bonus = 0.0
+        key_tokens = set(self._tokenize(entry["key"]))
+        if q_tokens & key_tokens:
+            key_bonus = 0.25
+        return 0.65 * cat_score + 0.35 * lexical + key_bonus
+
+    def retrieve(self, question: str, top_k: int = 20, min_score: float = 0.08) -> list:
+        q_tokens = set(self._tokenize(question))
+        if not q_tokens:
+            return []
+
+        cat_scores = {
+            cat: self._category_score(q_tokens, cat) for cat in self.cat_tokens.keys()
+        }
+        ranked = []
+        for entry in self.entries:
+            cscore = cat_scores.get(entry["category"], 0.0)
+            if cscore <= 0:
+                continue
+            score = self._entry_score(q_tokens, entry, cscore)
+            if score >= min_score:
+                ranked.append({**entry, "score": round(score, 5)})
+
+        ranked.sort(key=lambda x: x["score"], reverse=True)
+
+        # Q-learning benzeri hafıza güncellemesi:
+        # Bu turda çıkan kategoriler gelecekte az miktarda prior kazanır.
+        for item in ranked[: min(8, len(ranked))]:
+            self.category_bias[item["category"]] = min(
+                0.35, self.category_bias[item["category"]] * 0.92 + 0.03
+            )
+
+        return ranked[:top_k]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
