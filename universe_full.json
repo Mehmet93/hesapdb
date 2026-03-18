@@ -1,10 +1,10 @@
 {
-  "version": "2026-03-16",
+  "version": "2026-03-18",
   "metadata": {
     "source": "NIST CODATA 2022 + Serway 9th Ed + Griffiths + Landau + Wikipedia exact formulas",
     "total_constants": 62,
-    "total_equations": 487,
-    "last_updated": "2026-03-16",
+    "total_equations": 587,
+    "last_updated": "2026-03-18",
     "note": "Tüm değerler Türkçe + İngilizce, Serway bölümleri işaretli, zero hard-coding"
   },
   "constants": {
@@ -23,13 +23,13 @@
       "name": "Gravitational constant",
       "name_tr": "Kütleçekim sabiti",
       "source": "CODATA 2022"
-            },
-  "M_sun": {
-  "value": 1.98847e30,
-  "unit": "kg",
-  "name_tr": "Güneş Kütlesi",
-  "source": "IAU 2015"
-              },
+    },
+    "M_sun": {
+      "value": 1.98847e+30,
+      "unit": "kg",
+      "name_tr": "Güneş Kütlesi",
+      "source": "IAU 2015"
+    },
     "h": {
       "value": 6.62607015e-34,
       "unit": "J s",
@@ -435,37 +435,26 @@
       "formula": "Δ = r² - 2 M r + a² ; ρ² = r² + a² cos²θ",
       "name_tr": "Kerr metriği (dönen kara delik)"
     },
-
-
     "hawking_temperature": {
-  "formula": "T_H = (hbar * c^3) / (8 * pi * G * M * k_B)",
-  "name_tr": "Hawking sıcaklığı",
-  "note": "ÖNEMLİ: T_H ∝ 1/M. Birleşme sonucu kütle arttığı için sıcaklık düşer.",
-  "values": {
-    "M_10_sun": "6.17e-09 K",
-    "M_final_228_to_240_sun": "2.57e-10 K"
-  }
-},
-
-
-
-    
-
+      "formula": "T_H = (hbar * c^3) / (8 * pi * G * M * k_B)",
+      "name_tr": "Hawking sıcaklığı",
+      "note": "ÖNEMLİ: T_H ∝ 1/M. Birleşme sonucu kütle arttığı için sıcaklık düşer.",
+      "values": {
+        "M_10_sun": "6.17e-09 K",
+        "M_final_228_to_240_sun": "2.57e-10 K"
+      }
+    },
     "hawking_radiation_power": {
-  "formula": "P = (hbar * c^6) / (15360 * pi * G^2 * M^2)",
-  "name_tr": "Hawking radyasyonu gücü",
-  "description": "Kara deliğin birim zamanda yaydığı toplam ışıma gücü",
-  "note": "P ∝ 1/M² ilişkisi esastır. Kütle arttıkça ışıma gücü karesel olarak azalır.",
-  "values": {
-    "M_10_sun": "9.00e-29 W",
-    "M_240_sun": "1.56e-31 W"
-  },
-  "source": "Hawking, S. W. (1975)"
-},
-
-
-
-    
+      "formula": "P = (hbar * c^6) / (15360 * pi * G^2 * M^2)",
+      "name_tr": "Hawking radyasyonu gücü",
+      "description": "Kara deliğin birim zamanda yaydığı toplam ışıma gücü",
+      "note": "P ∝ 1/M² ilişkisi esastır. Kütle arttıkça ışıma gücü karesel olarak azalır.",
+      "values": {
+        "M_10_sun": "9.00e-29 W",
+        "M_240_sun": "1.56e-31 W"
+      },
+      "source": "Hawking, S. W. (1975)"
+    },
     "bekenstein_entropy": {
       "formula": "S = k_B c³ A / (4 ħ G)",
       "name_tr": "Bekenstein-Hawking entropisi",
@@ -482,6 +471,506 @@
     "innermost_stable_orbit": {
       "formula": "r_isco = 6 r_s (Schwarzschild)",
       "name_tr": "En iç kararlı yörünge"
+    },
+    "os_001_einstein_tensor_form": {
+      "formula": "G_{μν} = 8πG T_{μν}/c⁴",
+      "name_tr": "Einstein alan denklemi (tensör formu)",
+      "description": "PDE sistemi için temel geometrik-dinamik bağ."
+    },
+    "os_002_einstein_with_lambda": {
+      "formula": "G_{μν} + Λ g_{μν} = 8πG T_{μν}/c⁴",
+      "name_tr": "Kozmolojik sabitli Einstein denklemi",
+      "description": "Genel form; OS modelinde çoğunlukla Λ=0 alınır."
+    },
+    "os_003_stress_energy_dust": {
+      "formula": "T^{μν} = ρ u^{μ} u^{ν}",
+      "name_tr": "Toz akışkan enerji-momentum tensörü",
+      "description": "Basınçsız homojen küre varsayımı."
+    },
+    "os_004_dust_pressureless": {
+      "formula": "p = 0",
+      "name_tr": "Basınçsız madde koşulu",
+      "description": "Oppenheimer–Snyder idealizasyonu."
+    },
+    "os_005_four_velocity_norm": {
+      "formula": "u^{μ}u_{μ} = -c²",
+      "name_tr": "Dört-hız normu",
+      "description": "Komoving gözlemci normlama koşulu."
+    },
+    "os_006_bianchi_identity": {
+      "formula": "∇_{μ}G^{μν} = 0",
+      "name_tr": "Bianchi özdeşliği",
+      "description": "Einstein denklemlerinin tutarlılık koşulu."
+    },
+    "os_007_local_conservation": {
+      "formula": "∇_{μ}T^{μν} = 0",
+      "name_tr": "Yerel enerji-momentum korunumu",
+      "description": "Madde denklemlerini verir."
+    },
+    "os_008_comoving_time": {
+      "formula": "u^{μ} = (c,0,0,0)",
+      "name_tr": "Komoving koordinatta dört-hız",
+      "description": "İç bölgede akışkanla birlikte hareket eden çerçeve."
+    },
+    "os_009_density_homogeneity": {
+      "formula": "ρ(τ,r)=ρ(τ)",
+      "name_tr": "Homojen yoğunluk ansatzu",
+      "description": "Küre içinde radyal bağımlılık yoktur."
+    },
+    "os_010_metric_signature": {
+      "formula": "ds²<0 \text{ (zaman-benzeri dünyaçizgisi)}",
+      "name_tr": "Metrik imza koşulu",
+      "description": "Çökme sırasında fiziksel zaman-benzeri hareket."
+    },
+    "os_011_interior_metric": {
+      "formula": "ds²=-c²dτ²+a(τ)²[dr²/(1-kr²)+r²dΩ²]",
+      "name_tr": "İç bölge FRW metriği",
+      "description": "Homojen toz kürenin iç uzay-zamanı."
+    },
+    "os_012_angular_element": {
+      "formula": "dΩ²=dθ²+\\sin²θ\\,dφ²",
+      "name_tr": "Küresel açısal eleman",
+      "description": "Sferik simetri."
+    },
+    "os_013_curvature_positive": {
+      "formula": "k>0",
+      "name_tr": "Kapalı FRW eğriliği",
+      "description": "Sonlu yarıçaplı çökme küresi için uygun seçim."
+    },
+    "os_014_friedmann_1": {
+      "formula": "(\\dot a/a)² = 8πGρ/3 - kc²/a²",
+      "name_tr": "1. Friedmann denklemi",
+      "description": "İç çökmenin zaman evrimi."
+    },
+    "os_015_friedmann_2": {
+      "formula": "\\ddot a/a = -4πGρ/3",
+      "name_tr": "2. Friedmann denklemi (p=0)",
+      "description": "Çökmede ivmenin negatif olması."
+    },
+    "os_016_continuity": {
+      "formula": "\\dotρ + 3(\\dot a/a)ρ = 0",
+      "name_tr": "Süreklilik denklemi",
+      "description": "Toz akışkan yoğunluk evrimi."
+    },
+    "os_017_density_scaling": {
+      "formula": "ρ a³ = \text{sabıt}",
+      "name_tr": "Yoğunluk-ölçek ilişkisi",
+      "description": "Kütle korunumu."
+    },
+    "os_018_mass_interior": {
+      "formula": "M = (4π/3)ρ a³ r_b³",
+      "name_tr": "İç bölge kütlesi",
+      "description": "Komoving sınır r_b için toplam kütle."
+    },
+    "os_019_areal_radius": {
+      "formula": "R(τ,r)=a(τ)r",
+      "name_tr": "Areal yarıçap tanımı",
+      "description": "Fiziksel yarıçap."
+    },
+    "os_020_boundary_radius": {
+      "formula": "R_b(τ)=a(τ)r_b",
+      "name_tr": "Sınırın fiziksel yarıçapı",
+      "description": "Yıldız yüzeyinin evrimi."
+    },
+    "os_021_initial_scale": {
+      "formula": "a(0)=a_0",
+      "name_tr": "Başlangıç ölçek faktörü",
+      "description": "Çökme başlangıç koşulu."
+    },
+    "os_022_initial_rest": {
+      "formula": "\\dot a(0)=0",
+      "name_tr": "Başlangıçta durgunluk",
+      "description": "Maksimum yarıçaptan çökme senaryosu."
+    },
+    "os_023_initial_density": {
+      "formula": "ρ(0)=ρ_0",
+      "name_tr": "Başlangıç yoğunluğu",
+      "description": "Model parametresi."
+    },
+    "os_024_parametric_scale": {
+      "formula": "a(η)=\frac{a_0}{2}(1+\\cos η)",
+      "name_tr": "Parametrik ölçek faktörü",
+      "description": "Kapalı FRW toz çözümünün parametre gösterimi."
+    },
+    "os_025_parametric_time": {
+      "formula": "τ(η)=\frac{a_0}{2c\\sqrt{k}}(η+\\sin η)",
+      "name_tr": "Parametrik zaman denklemi",
+      "description": "Çökme evresinin η ile ifadesi."
+    },
+    "os_026_collapse_interval": {
+      "formula": "0\\le η \\le π",
+      "name_tr": "Çökme parametre aralığı",
+      "description": "η=0 başlangıç, η=π tekillik."
+    },
+    "os_027_final_singularity": {
+      "formula": "a(π)=0",
+      "name_tr": "Son tekillik koşulu",
+      "description": "Merkezde sonlu zamanda tekillik."
+    },
+    "os_028_proper_collapse_time": {
+      "formula": "τ_{col}=\frac{π a_0}{2c\\sqrt{k}}",
+      "name_tr": "Öz-zaman çökme süresi",
+      "description": "Komoving gözlemci için toplam süre."
+    },
+    "os_029_newton_like": {
+      "formula": "\\ddot R = -GM/R²",
+      "name_tr": "Sınır için Newton-benzeri denklem",
+      "description": "p=0 ve homojenlik altında etkin dinamik."
+    },
+    "os_030_energy_equation": {
+      "formula": "\frac{1}{2}\\dot R²-\frac{GM}{R}=E",
+      "name_tr": "Etkin enerji integrali",
+      "description": "Sınır hareketinin birinci integrali."
+    },
+    "os_031_marginal_bound": {
+      "formula": "E<0",
+      "name_tr": "Bağlı çökme koşulu",
+      "description": "Kapalı yörünge benzeri iç dinamik."
+    },
+    "os_032_density_from_mass": {
+      "formula": "ρ=\frac{3M}{4πR_b³}",
+      "name_tr": "Yoğunluğun kütleden hesabı",
+      "description": "Homojen küre için anlık ilişki."
+    },
+    "os_033_hubble_interior": {
+      "formula": "H=\\dot a/a",
+      "name_tr": "İç Hubble parametresi",
+      "description": "Çökmede H<0 olur."
+    },
+    "os_034_expansion_scalar": {
+      "formula": "Θ=3\\dot a/a",
+      "name_tr": "Genleşme skaları",
+      "description": "Çökmede negatif genleşme."
+    },
+    "os_035_shear_zero": {
+      "formula": "σ_{μν}=0",
+      "name_tr": "Kayma tensörü sıfır",
+      "description": "FRW iç bölgede izotropi sonucu."
+    },
+    "os_036_vorticity_zero": {
+      "formula": "ω_{μν}=0",
+      "name_tr": "Dönüklük tensörü sıfır",
+      "description": "Komoving toz akışında dönüklük yok."
+    },
+    "os_037_raychaudhuri_dust": {
+      "formula": "\\dot Θ+\frac{1}{3}Θ²+4πGρ=0",
+      "name_tr": "Raychaudhuri denklemi (toz)",
+      "description": "Odaklanma ve çökme koşulu."
+    },
+    "os_038_focusing_condition": {
+      "formula": "ρ>0 \\Rightarrow \\dot Θ<0",
+      "name_tr": "Odaklanma koşulu",
+      "description": "Pozitif enerji yoğunluğu çökmeyi hızlandırır."
+    },
+    "os_039_misner_sharp_mass": {
+      "formula": "m(r)=\frac{4π}{3}ρR³",
+      "name_tr": "Misner–Sharp kütlesi",
+      "description": "Küresel simetrik kütle fonksiyonu."
+    },
+    "os_040_mass_conservation_shell": {
+      "formula": "\\partial_τ m(r)=0",
+      "name_tr": "Kabuk kütlesi korunumu",
+      "description": "Kabuklar arası kütle transferi yok."
+    },
+    "os_041_exterior_metric": {
+      "formula": "ds²=-(1-2GM/(c²R))c²dT²+(1-2GM/(c²R))^{-1}dR²+R²dΩ²",
+      "name_tr": "Dış bölge Schwarzschild metriği",
+      "description": "Vakum dış uzay-zamanı."
+    },
+    "os_042_first_fundamental_match": {
+      "formula": "[h_{ab}]_{Σ}=0",
+      "name_tr": "Birinci temel form sürekliliği",
+      "description": "Sınır yüzeyinde metrik eşleştirme."
+    },
+    "os_043_second_fundamental_match": {
+      "formula": "[K_{ab}]_{Σ}=0",
+      "name_tr": "İkinci temel form sürekliliği",
+      "description": "İsrail birleşim koşulu (yüzey tabakası yok)."
+    },
+    "os_044_radius_match": {
+      "formula": "R_{Σ}(τ)=a(τ)r_b",
+      "name_tr": "Sınır yarıçap eşleştirmesi",
+      "description": "İç-dış koordinatlar arasında bağ."
+    },
+    "os_045_mass_match": {
+      "formula": "M=m(r_b)",
+      "name_tr": "Kütle eşleştirme",
+      "description": "İç Misner–Sharp = dış Schwarzschild kütlesi."
+    },
+    "os_046_proper_time_match": {
+      "formula": "dτ²=(1-2GM/(c²R_Σ))dT²-(1-2GM/(c²R_Σ))^{-1}dR_Σ²/c²",
+      "name_tr": "Sınırda zaman dönüşümü",
+      "description": "Dış zamanla öz-zaman ilişkisi."
+    },
+    "os_047_no_surface_pressure": {
+      "formula": "p_{Σ}=0",
+      "name_tr": "Yüzey basıncı yok",
+      "description": "Toz modelinde keskin sınır şartı."
+    },
+    "os_048_normalization_boundary": {
+      "formula": "u^{μ}_{Σ}u_{μ}^{Σ}=-c²",
+      "name_tr": "Sınır dünyaçizgisi normu",
+      "description": "Fiziksel düşüş hızı tanımı."
+    },
+    "os_049_extrinsic_curvature_theta": {
+      "formula": "K_{θ}^{θ}|_{in}=K_{θ}^{θ}|_{out}",
+      "name_tr": "Açısal dış eğrilik eşitliği",
+      "description": "Sınır geometrisinin sürekliliği."
+    },
+    "os_050_extrinsic_curvature_tau": {
+      "formula": "K_{τ}^{τ}|_{in}=K_{τ}^{τ}|_{out}",
+      "name_tr": "Zamansal dış eğrilik eşitliği",
+      "description": "Dinamik uyum koşulu."
+    },
+    "os_051_schwarzschild_radius": {
+      "formula": "R_s=2GM/c²",
+      "name_tr": "Schwarzschild yarıçapı",
+      "description": "Olay ufku ölçeği."
+    },
+    "os_052_horizon_condition": {
+      "formula": "R_b(τ_h)=R_s",
+      "name_tr": "Ufuk kesişim koşulu",
+      "description": "Yüzeyin olay ufkunu geçtiği an."
+    },
+    "os_053_redshift_surface": {
+      "formula": "1+z=(1-2GM/(c²R_b))^{-1/2}",
+      "name_tr": "Yüzey kırmızıya kayma",
+      "description": "Ufuğa yaklaşırken diverjans."
+    },
+    "os_054_escape_velocity": {
+      "formula": "v_{esc}=\\sqrt{2GM/R_b}",
+      "name_tr": "Kaçış hızı",
+      "description": "R_b\to R_s iken c’ye yaklaşım."
+    },
+    "os_055_compactness": {
+      "formula": "C=2GM/(c²R_b)",
+      "name_tr": "Kompaktlık parametresi",
+      "description": "Çökme ilerledikçe C artar."
+    },
+    "os_056_radial_null_interior": {
+      "formula": "ds²=0,\\ dΩ=0 \\Rightarrow c\\,dτ=\\pm a\\,dr/\\sqrt{1-kr²}",
+      "name_tr": "İç bölgede radyal null jeodezik",
+      "description": "Işık konilerinin evrimi."
+    },
+    "os_057_radial_null_exterior": {
+      "formula": "dT/dR=\\pm [c(1-2GM/(c²R))]^{-1}",
+      "name_tr": "Dış bölgede radyal null jeodezik",
+      "description": "Schwarzschild koordinatında ışık yolu."
+    },
+    "os_058_apparent_horizon": {
+      "formula": "2Gm/(c²R)=1",
+      "name_tr": "Görünür ufuk koşulu",
+      "description": "Tuzaklı yüzey başlangıcı."
+    },
+    "os_059_expansion_outgoing": {
+      "formula": "θ_{(+)}\\propto 1-2Gm/(c²R)",
+      "name_tr": "Dışa giden null genişleme",
+      "description": "Ufukta sıfır olur."
+    },
+    "os_060_trapped_surface": {
+      "formula": "θ_{(+)}<0\\ \\&\\ θ_{(-)}<0",
+      "name_tr": "Tuzaklı yüzey tanımı",
+      "description": "Çöküşün güçlü rejimi."
+    },
+    "os_061_kretschmann_schw": {
+      "formula": "K=48G²M²/(c⁴R⁶)",
+      "name_tr": "Kretschmann skaleri (dış)",
+      "description": "Tekillik yakınında eğrilik artışı."
+    },
+    "os_062_weyl_interior": {
+      "formula": "C_{αβγδ}=0",
+      "name_tr": "İç bölgede Weyl tensörü sıfır",
+      "description": "FRW iç uzay-zamanı konformal düz."
+    },
+    "os_063_ricci_scalar_interior": {
+      "formula": "\\mathcal{R}=8πGρ/c²",
+      "name_tr": "Ricci skaler (toz iç bölge)",
+      "description": "Madde kaynaklı eğrilik."
+    },
+    "os_064_proper_volume": {
+      "formula": "V(τ)=4πa³\\int_0^{r_b}\frac{r²dr}{\\sqrt{1-kr²}}",
+      "name_tr": "İç öz-hacim",
+      "description": "Yoğunluk hesabında kullanılır."
+    },
+    "os_065_baryon_number": {
+      "formula": "N_b=n_b V",
+      "name_tr": "Baryon sayısı korunumu",
+      "description": "Mikrofiziksel parçacık sayısı sabiti."
+    },
+    "os_066_number_continuity": {
+      "formula": "∇_{μ}(n_bu^{μ})=0",
+      "name_tr": "Baryon akısı korunumu",
+      "description": "Toz akışkan için süreklilik."
+    },
+    "os_067_comoving_shell_eq": {
+      "formula": "dr/dτ=0",
+      "name_tr": "Komoving kabuk koşulu",
+      "description": "Madde kabukları koordinatta sabit."
+    },
+    "os_068_shell_crossing_absent": {
+      "formula": "\\partial R/\\partial r>0",
+      "name_tr": "Kabuk-kesişmesi olmama koşulu",
+      "description": "Homojen modelde otomatik sağlanır."
+    },
+    "os_069_causal_speed_limit": {
+      "formula": "|dR/dτ|<c",
+      "name_tr": "Nedensel hız sınırı",
+      "description": "Yerel fiziksel hız üst sınırı."
+    },
+    "os_070_surface_proper_velocity": {
+      "formula": "U_b=\\dot R_b/c",
+      "name_tr": "Sınır öz-hızı",
+      "description": "Çökme kinetiğinin boyutsuz ölçüsü."
+    },
+    "os_071_3plus1_metric": {
+      "formula": "ds²=-α²c²dt²+γ_{ij}(dx^i+β^i dt)(dx^j+β^j dt)",
+      "name_tr": "3+1 ayrışım metriği",
+      "description": "Sayısal GR’de kullanılan PDE çerçevesi."
+    },
+    "os_072_hamiltonian_constraint": {
+      "formula": "{}^{(3)}R+K²-K_{ij}K^{ij}=16πG E/c⁴",
+      "name_tr": "Hamilton kısıtı",
+      "description": "Başlangıç verisi için eliptik denklem."
+    },
+    "os_073_momentum_constraint": {
+      "formula": "D_j(K^{ij}-γ^{ij}K)=8πG S^i/c⁴",
+      "name_tr": "Momentum kısıtı",
+      "description": "Başlangıç verisi tutarlılığı."
+    },
+    "os_074_k_evolution": {
+      "formula": "∂_tK_{ij}=\\cdots-8πGα(S_{ij}-\tfrac{1}{2}γ_{ij}(S-E))/c⁴",
+      "name_tr": "Dış eğrilik evrimi",
+      "description": "3+1 Einstein evrim PDEsi."
+    },
+    "os_075_metric_evolution": {
+      "formula": "∂_tγ_{ij}=-2αK_{ij}+\\mathcal{L}_βγ_{ij}",
+      "name_tr": "Uzaysal metrik evrimi",
+      "description": "Sayısal zaman adımı denklemi."
+    },
+    "os_076_lapse_condition": {
+      "formula": "∂_tα=-2αK",
+      "name_tr": "1+log lapse (örnek)",
+      "description": "Gauge seçimiyle kararlılık."
+    },
+    "os_077_shift_condition": {
+      "formula": "∂_tβ^i=\tfrac{3}{4}B^i,\\ ∂_tB^i=∂_t\tildeΓ^i-ηB^i",
+      "name_tr": "Gamma-driver shift",
+      "description": "Koordinat gerilmesini azaltır."
+    },
+    "os_078_bssn_phi": {
+      "formula": "φ=\tfrac{1}{12}\\ln\\det γ_{ij}",
+      "name_tr": "BSSN konformal faktör",
+      "description": "Sayısal değişken dönüşümü."
+    },
+    "os_079_bssn_metric": {
+      "formula": "\tildeγ_{ij}=e^{-4φ}γ_{ij}",
+      "name_tr": "BSSN konformal metrik",
+      "description": "Determinantı bir olacak şekilde tanım."
+    },
+    "os_080_bssn_tracefree": {
+      "formula": "\tilde A_{ij}=e^{-4φ}(K_{ij}-\tfrac{1}{3}γ_{ij}K)",
+      "name_tr": "BSSN izsiz eğrilik",
+      "description": "Evrim denklemlerinde kullanılır."
+    },
+    "os_081_gauge_regular_center": {
+      "formula": "\\partial_r α|_{r=0}=0",
+      "name_tr": "Merkez düzenlilik (lapse)",
+      "description": "Sferik simetri merkez koşulu."
+    },
+    "os_082_center_metric_regular": {
+      "formula": "γ_{rr}(t,0)=1",
+      "name_tr": "Merkez düzenlilik (metrik)",
+      "description": "r=0 tekilliklerini önleme."
+    },
+    "os_083_outer_boundary": {
+      "formula": "∂_t u + c ∂_r u =0",
+      "name_tr": "Dış sınır çıkış koşulu",
+      "description": "Yansımasız sayısal sınır yaklaşımı."
+    },
+    "os_084_cfl_condition": {
+      "formula": "Δt \\le C_{CFL} Δr / v_{max}",
+      "name_tr": "CFL kararlılık koşulu",
+      "description": "Sayısal entegrasyon zaman adımı."
+    },
+    "os_085_discretized_update": {
+      "formula": "u_i^{n+1}=u_i^n+Δt\\,\\mathcal{L}(u^n)",
+      "name_tr": "Ayrık zaman güncellemesi",
+      "description": "PDE çözümleyicide temel şema."
+    },
+    "os_086_constraint_norm": {
+      "formula": "||\\mathcal{H}||_2=(\\sum_i \\mathcal{H}_i²ΔV_i)^{1/2}",
+      "name_tr": "Hamilton kısıtı normu",
+      "description": "Sayısal hata ölçütü."
+    },
+    "os_087_momentum_norm": {
+      "formula": "||\\mathcal{M}||_2=(\\sum_i \\mathcal{M}_i²ΔV_i)^{1/2}",
+      "name_tr": "Momentum kısıtı normu",
+      "description": "Evrim doğruluğu takibi."
+    },
+    "os_088_mass_asymptotic": {
+      "formula": "M_{ADM}=\\lim_{r\to\\infty}\frac{r}{2G}(1-γ_{rr}^{-1})c²",
+      "name_tr": "ADM kütlesi",
+      "description": "Asimptotik kütle tanımı."
+    },
+    "os_089_energy_budget": {
+      "formula": "E_{tot}=M_{ADM}c²",
+      "name_tr": "Toplam enerji bütçesi",
+      "description": "Kapalı sistem enerji tanımı."
+    },
+    "os_090_horizon_mass": {
+      "formula": "M_{AH}=c²R_{AH}/(2G)",
+      "name_tr": "Görünür ufuk kütlesi",
+      "description": "Ufuk yarıçapından çıkarılır."
+    },
+    "os_091_compaction_function": {
+      "formula": "\\mathcal{C}(r)=2Gm(r)/(c²R)",
+      "name_tr": "Yerel kompaksiyon fonksiyonu",
+      "description": "Ufuk oluşumu izleyicisi."
+    },
+    "os_092_singularity_indicator": {
+      "formula": "K\to\\infty \\Rightarrow \text{tekillik yaklaşımı}",
+      "name_tr": "Tekillik göstergesi",
+      "description": "Eğrilik değişmeziyle izleme."
+    },
+    "os_093_freefall_proper_time": {
+      "formula": "dτ=dt\\,\\sqrt{1-v²/c²}",
+      "name_tr": "Öz-zaman elemanı",
+      "description": "Düşen sınır parçacığı için zaman."
+    },
+    "os_094_surface_luminosity_proxy": {
+      "formula": "L_\\infty \\propto (1-2GM/(c²R_b))",
+      "name_tr": "Uzak gözlemci parlaklık vekili",
+      "description": "Kırmızıya kayma ile bastırılan sinyal."
+    },
+    "os_095_coordinate_slowdown": {
+      "formula": "dT/dτ \to \\infty\\ \text{as}\\ R_b\to R_s",
+      "name_tr": "Koordinat zamanda yavaşlama",
+      "description": "Dış gözlemciye göre donma etkisi."
+    },
+    "os_096_proper_crossing_finite": {
+      "formula": "τ_h < \\infty",
+      "name_tr": "Öz-zamanda ufuk geçişi sonlu",
+      "description": "Düşen gözlemci ufku sonlu sürede geçer."
+    },
+    "os_097_density_divergence": {
+      "formula": "ρ\\propto a^{-3}\to\\infty\\ \text{as}\\ a\to0",
+      "name_tr": "Yoğunluk diverjansı",
+      "description": "Tekilliğe yaklaşımda madde yoğunluğu."
+    },
+    "os_098_curvature_divergence": {
+      "formula": "\\mathcal{R},K\to\\infty\\ \text{as}\\ a\to0",
+      "name_tr": "Eğrilik diverjansı",
+      "description": "Son durumda klasik GR kırılımı."
+    },
+    "os_099_model_validity": {
+      "formula": "p\\ll ρc²",
+      "name_tr": "Toz yaklaşım geçerlilik koşulu",
+      "description": "Basınç ihmalinin uygunluk kriteri."
+    },
+    "os_100_closure": {
+      "formula": "\\{g_{μν},K_{ij},ρ,u^{μ}\\}\\Rightarrow \text{kapalı sayısal evrim sistemi}",
+      "name_tr": "Model kapanış kümesi",
+      "description": "Kapalı form yerine sayısal/yarı-analitik çözüm seti."
     }
   },
   "quantum": {
@@ -576,19 +1065,15 @@
       "formula": "C = S N(d1) - K e^{-r t} N(d2)",
       "name_tr": "Black-Scholes çağrı opsiyon fiyatı"
     },
-
     "schwarzschild_radius_calculation": {
       "formula": "r_s (km) = 2.953 × (M / M☉)",
       "derivation": "r_s = 2 G M / c² with numerical factors",
-  "values": {
-    "M_10_sun": "29.53 km",
-    "M_230_sun": "679.19 km",
-    "M_final_240_sun": "708.72 km"
-  }
-},
-
-
-    
+      "values": {
+        "M_10_sun": "29.53 km",
+        "M_230_sun": "679.19 km",
+        "M_final_240_sun": "708.72 km"
+      }
+    },
     "merger_energy_release": {
       "formula": "ΔE = (M₁ + M₂) * η * c²",
       "name_tr": "kara delik çarpışma, schwarzschild",
@@ -634,8 +1119,6 @@
       "source": "Numerical Relativity / IMRPhenom Fitting Models"
     }
   },
-
-
   "earthquake_and_explosives": {
     "eq101_moment_magnitude": {
       "formula": "M_w = 2/3 log10(M_0) - 6.07",
@@ -713,70 +1196,67 @@
       "description": "Yıkım şiddetini hesaplamak için mesafe ve patlayıcı kütlesi oranı."
     }
   },
-
-
-
-    "c4_001_chemical_composition": {
-      "formula": "RDX: C3H6N6O6 (91%) + Plasticizer: C10H18O4 (9.2%)",
-      "name_tr": "C4 Kimyasal Kompozisyonu",
-      "description": "C4'ün ana patlayıcı bileşeni olan Siklotrimetilentritramin (RDX) ve plastikleştirici oranı."
-    },
-    "c4_002_detonation_velocity_exact": {
-      "formula": "V_d = 8040 m/s (at ρ = 1.63 g/cm³)",
-      "name_tr": "C4 Detonasyon Hızı",
-      "description": "Şok dalgasının patlayıcı kütlesi içindeki ilerleme hızı."
-    },
-    "c4_003_oxygen_balance": {
-      "formula": "OB% = -21.6%",
-      "name_tr": "Oksijen Dengesi (RDX)",
-      "description": "RDX'in tam yanma için yetersiz oksijene sahip olduğunu, dolayısıyla çevredeki atmosferik oksijenle ikincil yanma (afterburn) yapacağını gösteren katsayı."
-    },
-    "c4_004_afterburn_energy": {
-      "formula": "ΔE_total = ΔE_det + ΔE_oxid",
-      "name_tr": "Toplam Enerji Salınımı",
-      "description": "Ana patlama enerjisi ile atmosferik oksijenle birleşen yanmamış gazların (CO, H2) oluşturduğu ikincil ısı enerjisi toplamı."
-    },
-    "c4_005_friedlander_waveform": {
-      "formula": "P(t) = P_s * (1 - t/t_d) * e^(-b*t/t_d)",
-      "name_tr": "Friedlander Dalga Formu",
-      "description": "Patlama dalgasının zamanla değişen basınç profili; aşırı basınç (P_s) ve sönümleme katsayısı (b) içerir."
-    },
-    "c4_006_blast_overpressure_damage": {
-      "formula": "ΔP_threshold = 100 kPa (Lung Damage)",
-      "name_tr": "Akciğer Hasarı Basınç Eşiği",
-      "description": "İnsan akciğer dokusunda kalıcı hasar ve kanama başlatan minimum statik aşırı basınç değeri."
-    },
-    "c4_007_skull_fracture_acceleration": {
-      "formula": "HIC = ∫ [a(t)]^2.5 dt",
-      "name_tr": "Kafa Travması Kriteri (HIC)",
-      "description": "Patlama dalgasının etkisiyle kafanın maruz kaldığı ivmelenme (a) sonucu oluşan beyin sarsıntısı/kafatası kırığı riski."
-    },
-    "c4_008_body_displacement_kinetic": {
-      "formula": "K_body = ½ m_human * (ΔP * A_human / m_human * Δt)²",
-      "name_tr": "Gözlemci Fırlatma Kinetiği",
-      "description": "Patlama rüzgarının insanın kesit alanına (A) uyguladığı kuvvetle kişiyi fırlatma enerjisi."
-    },
-    "c4_009_thermal_flux_burn": {
-      "formula": "q = √(k ρ c / t) * (T_skin - T_ambient)",
-      "name_tr": "Termal Yanık Akısı",
-      "description": "Patlamadan yayılan ani ısı radyasyonunun insan derisinde oluşturduğu yanık derecesi hesabı."
-    },
-    "c4_010_dynamic_pressure_wind": {
-      "formula": "q = ½ ρ_air * u²",
-      "name_tr": "Dinamik Patlama Basıncı",
-      "description": "Şok cephesinin arkasından gelen yüksek hızlı 'patlama rüzgarı'nın (u) oluşturduğu fiziksel yıkım gücü."
-    },
-    "c4_011_scaled_distance_law": {
-      "formula": "Z = R / (W^(1/3)) ; [R in m, W in kg]",
-      "name_tr": "Ölçeklenmiş Mesafe (Hopkinson-Cranz) - C4 için",
-      "description": "Patlayıcı kütlesi (W) ve mesafe (R) arasındaki ilişkiyle yıkım bölgesini belirler."
-    },
-    "c4_012_gaseous_product_volume": {
-      "formula": "V_gas ≈ 900 L/kg",
-      "name_tr": "Gaz Genleşme Oranı",
-      "description": "1 kg C4'ün patlama anında dönüştüğü sıcak gaz hacmi."
-    },
-    "c4_ballistics_and_human_trauma_v2": {
+  "c4_001_chemical_composition": {
+    "formula": "RDX: C3H6N6O6 (91%) + Plasticizer: C10H18O4 (9.2%)",
+    "name_tr": "C4 Kimyasal Kompozisyonu",
+    "description": "C4'ün ana patlayıcı bileşeni olan Siklotrimetilentritramin (RDX) ve plastikleştirici oranı."
+  },
+  "c4_002_detonation_velocity_exact": {
+    "formula": "V_d = 8040 m/s (at ρ = 1.63 g/cm³)",
+    "name_tr": "C4 Detonasyon Hızı",
+    "description": "Şok dalgasının patlayıcı kütlesi içindeki ilerleme hızı."
+  },
+  "c4_003_oxygen_balance": {
+    "formula": "OB% = -21.6%",
+    "name_tr": "Oksijen Dengesi (RDX)",
+    "description": "RDX'in tam yanma için yetersiz oksijene sahip olduğunu, dolayısıyla çevredeki atmosferik oksijenle ikincil yanma (afterburn) yapacağını gösteren katsayı."
+  },
+  "c4_004_afterburn_energy": {
+    "formula": "ΔE_total = ΔE_det + ΔE_oxid",
+    "name_tr": "Toplam Enerji Salınımı",
+    "description": "Ana patlama enerjisi ile atmosferik oksijenle birleşen yanmamış gazların (CO, H2) oluşturduğu ikincil ısı enerjisi toplamı."
+  },
+  "c4_005_friedlander_waveform": {
+    "formula": "P(t) = P_s * (1 - t/t_d) * e^(-b*t/t_d)",
+    "name_tr": "Friedlander Dalga Formu",
+    "description": "Patlama dalgasının zamanla değişen basınç profili; aşırı basınç (P_s) ve sönümleme katsayısı (b) içerir."
+  },
+  "c4_006_blast_overpressure_damage": {
+    "formula": "ΔP_threshold = 100 kPa (Lung Damage)",
+    "name_tr": "Akciğer Hasarı Basınç Eşiği",
+    "description": "İnsan akciğer dokusunda kalıcı hasar ve kanama başlatan minimum statik aşırı basınç değeri."
+  },
+  "c4_007_skull_fracture_acceleration": {
+    "formula": "HIC = ∫ [a(t)]^2.5 dt",
+    "name_tr": "Kafa Travması Kriteri (HIC)",
+    "description": "Patlama dalgasının etkisiyle kafanın maruz kaldığı ivmelenme (a) sonucu oluşan beyin sarsıntısı/kafatası kırığı riski."
+  },
+  "c4_008_body_displacement_kinetic": {
+    "formula": "K_body = ½ m_human * (ΔP * A_human / m_human * Δt)²",
+    "name_tr": "Gözlemci Fırlatma Kinetiği",
+    "description": "Patlama rüzgarının insanın kesit alanına (A) uyguladığı kuvvetle kişiyi fırlatma enerjisi."
+  },
+  "c4_009_thermal_flux_burn": {
+    "formula": "q = √(k ρ c / t) * (T_skin - T_ambient)",
+    "name_tr": "Termal Yanık Akısı",
+    "description": "Patlamadan yayılan ani ısı radyasyonunun insan derisinde oluşturduğu yanık derecesi hesabı."
+  },
+  "c4_010_dynamic_pressure_wind": {
+    "formula": "q = ½ ρ_air * u²",
+    "name_tr": "Dinamik Patlama Basıncı",
+    "description": "Şok cephesinin arkasından gelen yüksek hızlı 'patlama rüzgarı'nın (u) oluşturduğu fiziksel yıkım gücü."
+  },
+  "c4_011_scaled_distance_law": {
+    "formula": "Z = R / (W^(1/3)) ; [R in m, W in kg]",
+    "name_tr": "Ölçeklenmiş Mesafe (Hopkinson-Cranz) - C4 için",
+    "description": "Patlayıcı kütlesi (W) ve mesafe (R) arasındaki ilişkiyle yıkım bölgesini belirler."
+  },
+  "c4_012_gaseous_product_volume": {
+    "formula": "V_gas ≈ 900 L/kg",
+    "name_tr": "Gaz Genleşme Oranı",
+    "description": "1 kg C4'ün patlama anında dönüştüğü sıcak gaz hacmi."
+  },
+  "c4_ballistics_and_human_trauma_v2": {
     "c4_001_detonation_velocity": {
       "formula": "V_d ≈ 8040 m/s",
       "name_tr": "C4 Detonasyon Hızı",
@@ -881,151 +1361,440 @@
       "name_tr": "Zırh Delici Çekirdek Enerjisi",
       "description": "AP mermilerde sert çekirdeğe aktarılan enerjinin korunumu."
     },
-
-  "example_military_ballistics": {
-    "weapon_system": "Beretta M9 / SIG Sauer M17",
-    "projectile_data": {
-      "mass_m": "0.0075 kg (115 grain)",
-      "muzzle_velocity_v": "360 m/s",
-      "diameter_d": "0.009 m (9mm)",
-      "drag_coefficient_Cd": "0.295"
-    },
-    "calculated_terminal_values": {
-      "bal_001_kinetic_energy": {
-        "formula": "K_e = ½ * 0.0075 * 360²",
-        "result": "486 Joule",
-        "analysis": "İnsan yumuşak dokusunda geçici kavitasyon oluşturmak için yeterli, ancak ağır zırhlar için düşüktür."
+    "example_military_ballistics": {
+      "weapon_system": "Beretta M9 / SIG Sauer M17",
+      "projectile_data": {
+        "mass_m": "0.0075 kg (115 grain)",
+        "muzzle_velocity_v": "360 m/s",
+        "diameter_d": "0.009 m (9mm)",
+        "drag_coefficient_Cd": "0.295"
       },
-      "bal_002_sectional_density": {
-        "formula": "SD = 0.0075 / 0.009²",
-        "result": "92.59 kg/m²",
-        "analysis": "Orta derece penetrasyon kabiliyeti sağlar."
-      },
-      "bal_006_steel_penetration": {
-        "formula": "De Marre Equation Applied",
-        "target": "Yumuşak Çelik (Mild Steel)",
-        "result": "≈ 2.5 - 3.0 mm",
-        "note": "Askeri çelik yeleklerdeki (Level III+) plakaları delemez."
-      },
-      "bal_009_hydrostatic_shock": {
-        "formula": "P_h = 1000 * 1500 * 360",
-        "result": "540 MPa (Teorik Maksimum Basınç Dalgası)",
-        "analysis": "Doku içindeki sıvıların ani basınç artışıyla uzak sinirsel hasar (stunning effect) yaratma potansiyeli."
+      "calculated_terminal_values": {
+        "bal_001_kinetic_energy": {
+          "formula": "K_e = ½ * 0.0075 * 360²",
+          "result": "486 Joule",
+          "analysis": "İnsan yumuşak dokusunda geçici kavitasyon oluşturmak için yeterli, ancak ağır zırhlar için düşüktür."
+        },
+        "bal_002_sectional_density": {
+          "formula": "SD = 0.0075 / 0.009²",
+          "result": "92.59 kg/m²",
+          "analysis": "Orta derece penetrasyon kabiliyeti sağlar."
+        },
+        "bal_006_steel_penetration": {
+          "formula": "De Marre Equation Applied",
+          "target": "Yumuşak Çelik (Mild Steel)",
+          "result": "≈ 2.5 - 3.0 mm",
+          "note": "Askeri çelik yeleklerdeki (Level III+) plakaları delemez."
+        },
+        "bal_009_hydrostatic_shock": {
+          "formula": "P_h = 1000 * 1500 * 360",
+          "result": "540 MPa (Teorik Maksimum Basınç Dalgası)",
+          "analysis": "Doku içindeki sıvıların ani basınç artışıyla uzak sinirsel hasar (stunning effect) yaratma potansiyeli."
+        }
       }
     }
-  }
-    
   },
-
-  
-
-
-
-
-
-
-
   "extra_equations_pack_200": {
-    "eq001_euler_identity": {"formula":"e^{iπ}+1=0","name_tr":"Euler özdeşliği"},
-    "eq002_euler_formula": {"formula":"e^{ix}=cos(x)+i sin(x)","name_tr":"Euler formülü"},
-    "eq003_binomial_theorem": {"formula":"(x+y)^n = Σ C(n,k)x^{n-k}y^k","name_tr":"Binom teoremi"},
-    "eq004_taylor_series": {"formula":"f(x)=Σ f^(n)(a)(x-a)^n/n!","name_tr":"Taylor serisi"},
-    "eq005_fourier_series": {"formula":"f(x)=a0/2+Σ(an cos(nx)+bn sin(nx))","name_tr":"Fourier serisi"},
-    "eq006_gaussian_integral": {"formula":"∫ e^{-x^2}dx = √π","name_tr":"Gaussian integral"},
-    "eq007_cauchy_schwarz": {"formula":"|⟨x,y⟩| ≤ ||x|| ||y||","name_tr":"Cauchy-Schwarz eşitsizliği"},
-    "eq008_stokes_theorem": {"formula":"∮ F·dr = ∬ (∇×F)·dS","name_tr":"Stokes teoremi"},
-    "eq009_gauss_divergence": {"formula":"∭ (∇·F)dV = ∬ F·dS","name_tr":"Gauss diverjans teoremi"},
-    "eq010_green_theorem": {"formula":"∮(Ldx+Mdy)=∬(∂M/∂x-∂L/∂y)dA","name_tr":"Green teoremi"},
-    "eq011_planck_law": {"formula":"B(ν,T)=(2hν^3/c^2)/(e^{hν/kT}-1)","name_tr":"Planck ışıma yasası"},
-    "eq012_wien_law": {"formula":"λ_max T = b","name_tr":"Wien kayma yasası"},
-    "eq013_debroglie": {"formula":"λ = h/p","name_tr":"de Broglie dalga boyu"},
-    "eq014_bohr_energy": {"formula":"E_n = -13.6 eV / n^2","name_tr":"Bohr enerji seviyeleri"},
-    "eq015_bohr_radius_formula": {"formula":"a0 = 4π ε0 ħ² / (m_e e²)","name_tr":"Bohr yarıçapı formülü"},
-    "eq016_radiation_pressure": {"formula":"P = u/3","name_tr":"Işınım basıncı"},
-    "eq017_blackbody_energy_density": {"formula":"u = aT^4","name_tr":"Kara cisim enerji yoğunluğu"},
-    "eq018_electric_potential": {"formula":"V = kq/r","name_tr":"Elektrik potansiyeli"},
-    "eq019_capacitance": {"formula":"C = Q/V","name_tr":"Kapasitans"},
-    "eq020_parallel_capacitors": {"formula":"C_eq = Σ C_i","name_tr":"Paralel kapasitörler"},
-    "eq021_series_capacitors": {"formula":"1/C_eq = Σ 1/C_i","name_tr":"Seri kapasitörler"},
-    "eq022_ohm_law": {"formula":"V = IR","name_tr":"Ohm yasası"},
-    "eq023_resistor_power": {"formula":"P = I^2 R","name_tr":"Direnç gücü"},
-    "eq024_inductor_voltage": {"formula":"V = L dI/dt","name_tr":"Endüktör voltajı"},
-    "eq025_capacitor_current": {"formula":"I = C dV/dt","name_tr":"Kapasitör akımı"},
-    "eq026_rl_time_constant": {"formula":"τ = L/R","name_tr":"RL zaman sabiti"},
-    "eq027_rc_time_constant": {"formula":"τ = RC","name_tr":"RC zaman sabiti"},
-    "eq028_lc_frequency": {"formula":"ω = 1/√(LC)","name_tr":"LC rezonans frekansı"},
-    "eq029_poynting_vector": {"formula":"S = (1/μ0)(E×B)","name_tr":"Poynting vektörü"},
-    "eq030_em_wave_speed": {"formula":"c = 1/√(μ0 ε0)","name_tr":"EM dalga hızı"},
-    "eq031_relativistic_gamma": {"formula":"γ = 1/√(1-v²/c²)","name_tr":"Lorentz faktörü"},
-    "eq032_relativistic_energy": {"formula":"E = γmc²","name_tr":"Relativistik enerji"},
-    "eq033_relativistic_momentum": {"formula":"p = γmv","name_tr":"Relativistik momentum"},
-    "eq034_time_dilation": {"formula":"Δt = γ Δt0","name_tr":"Zaman genişlemesi"},
-    "eq035_length_contraction": {"formula":"L = L0/γ","name_tr":"Uzunluk kısalması"},
-    "eq036_doppler_relativistic": {"formula":"f' = f√((1+β)/(1-β))","name_tr":"Relativistik Doppler"},
-    "eq037_gravitational_redshift": {"formula":"z = Δλ/λ","name_tr":"Kütleçekimsel kırmızıya kayma"},
-    "eq038_escape_velocity": {"formula":"v_e = √(2GM/R)","name_tr":"Kaçış hızı"},
-    "eq039_orbital_velocity": {"formula":"v = √(GM/r)","name_tr":"Yörünge hızı"},
-    "eq040_tidal_force": {"formula":"F_t ∝ GMd/r³","name_tr":"Gelgit kuvveti"},
-    "eq041_entropy_change": {"formula":"dS = δQ/T","name_tr":"Entropi değişimi"},
-    "eq042_carnot_efficiency": {"formula":"η = 1 - Tc/Th","name_tr":"Carnot verimi"},
-    "eq043_gibbs_free_energy": {"formula":"G = H - TS","name_tr":"Gibbs enerjisi"},
-    "eq044_helmholtz_energy": {"formula":"F = U - TS","name_tr":"Helmholtz enerjisi"},
-    "eq045_chemical_potential": {"formula":"μ = (∂G/∂N)_T,P","name_tr":"Kimyasal potansiyel"},
-    "eq046_entropy_statistical": {"formula":"S = k ln Ω","name_tr":"Boltzmann entropisi"},
-    "eq047_mean_free_path": {"formula":"λ = 1/(√2 n σ)","name_tr":"Ortalama serbest yol"},
-    "eq048_ideal_gas_energy": {"formula":"U = (3/2)nRT","name_tr":"İdeal gaz iç enerji"},
-    "eq049_speed_rms": {"formula":"v_rms = √(3kT/m)","name_tr":"RMS hız"},
-    "eq050_pressure_kinetic": {"formula":"P = (1/3)ρ v_rms²","name_tr":"Kinetik basınç"},
-    "eq051_diffusion_flux": {"formula":"J = -D ∇C","name_tr":"Fick 1. yasa"},
-    "eq052_fick_second": {"formula":"∂C/∂t = D∇²C","name_tr":"Fick 2. yasa"},
-    "eq053_advection_diffusion": {"formula":"∂u/∂t + v·∇u = D∇²u","name_tr":"Adveksiyon-difüzyon"},
-    "eq054_kolmogorov_energy": {"formula":"E(k) ∝ k^{-5/3}","name_tr":"Kolmogorov spektrumu"},
-    "eq055_reynolds_number": {"formula":"Re = ρvL/μ","name_tr":"Reynolds sayısı"},
-    "eq056_mach_number": {"formula":"M = v/c_s","name_tr":"Mach sayısı"},
-    "eq057_prandtl_number": {"formula":"Pr = ν/α","name_tr":"Prandtl sayısı"},
-    "eq058_nusselt_number": {"formula":"Nu = hL/k","name_tr":"Nusselt sayısı"},
-    "eq059_schmidt_number": {"formula":"Sc = ν/D","name_tr":"Schmidt sayısı"},
-    "eq060_grashof_number": {"formula":"Gr = gβΔTL³/ν²","name_tr":"Grashof sayısı"},
-    "eq061_logarithm_rule": {"formula":"log(ab)=log a + log b","name_tr":"Log çarpım kuralı"},
-    "eq062_log_division": {"formula":"log(a/b)=log a - log b","name_tr":"Log bölme kuralı"},
-    "eq063_log_power": {"formula":"log(a^b)=b log a","name_tr":"Log üs kuralı"},
-    "eq064_exponential_growth": {"formula":"N=N0 e^{rt}","name_tr":"Üstel büyüme"},
-    "eq065_half_life": {"formula":"t½ = ln2 / λ","name_tr":"Yarı ömür"},
-    "eq066_radioactive_decay": {"formula":"N=N0 e^{-λt}","name_tr":"Radyoaktif bozunma"},
-    "eq067_logistic_solution": {"formula":"N(t)=K/(1+Ae^{-rt})","name_tr":"Lojistik çözüm"},
-    "eq068_population_equilibrium": {"formula":"N*=K","name_tr":"Lojistik denge"},
-    "eq069_basic_reproduction": {"formula":"R0 = β/γ","name_tr":"Epidemi R0"},
-    "eq070_sir_model": {"formula":"dI/dt = βSI - γI","name_tr":"SIR epidemik model"},
-    "eq071_lorentz_force": {"formula":"F = q(E + v×B)","name_tr":"Lorentz kuvveti"},
-    "eq072_cyclotron_frequency": {"formula":"ω = qB/m","name_tr":"Siklotron frekansı"},
-    "eq073_larmor_radius": {"formula":"r = mv/(qB)","name_tr":"Larmor yarıçapı"},
-    "eq074_magnetic_energy": {"formula":"U = (1/2)LI²","name_tr":"Manyetik enerji"},
-    "eq075_capacitor_energy": {"formula":"U = (1/2)CV²","name_tr":"Kapasitör enerji"},
-    "eq076_energy_density_E": {"formula":"u = ε0 E²/2","name_tr":"Elektrik enerji yoğunluğu"},
-    "eq077_energy_density_B": {"formula":"u = B²/(2μ0)","name_tr":"Manyetik enerji yoğunluğu"},
-    "eq078_em_wave_energy": {"formula":"u = ε0 E²","name_tr":"EM dalga enerji"},
-    "eq079_radiation_force": {"formula":"F = P/c","name_tr":"Işınım kuvveti"},
-    "eq080_photon_energy": {"formula":"E = hν","name_tr":"Foton enerjisi"},
-    "eq081_wave_speed_string": {"formula":"v = √(T/μ)","name_tr":"Tel dalga hızı"},
-    "eq082_sound_speed": {"formula":"c = √(γP/ρ)","name_tr":"Ses hızı"},
-    "eq083_shm_period": {"formula":"T = 2π√(m/k)","name_tr":"SHM periyodu"},
-    "eq084_pendulum_period": {"formula":"T = 2π√(L/g)","name_tr":"Sarkaç periyodu"},
-    "eq085_damped_frequency": {"formula":"ω' = √(ω0² - (b/2m)²)","name_tr":"Sönümlü frekans"},
-    "eq086_resonance_peak": {"formula":"ω_r ≈ √(ω0² - (b²/2m²))","name_tr":"Rezonans frekansı"},
-    "eq087_quality_factor": {"formula":"Q = ω0 m / b","name_tr":"Q faktörü"},
-    "eq088_wave_intensity": {"formula":"I = P/A","name_tr":"Dalga şiddeti"},
-    "eq089_wave_power": {"formula":"P = ½ ρ A² ω² v","name_tr":"Dalga gücü"},
-    "eq090_group_velocity": {"formula":"v_g = dω/dk","name_tr":"Grup hızı"},
-    "eq091_phase_velocity": {"formula":"v_p = ω/k","name_tr":"Faz hızı"},
-    "eq092_snell_law": {"formula":"n1 sinθ1 = n2 sinθ2","name_tr":"Snell yasası"},
-    "eq093_refraction_index": {"formula":"n = c/v","name_tr":"Kırılma indisi"},
-    "eq094_lens_formula": {"formula":"1/f = 1/d_o + 1/d_i","name_tr":"Mercek formülü"},
-    "eq095_magnification": {"formula":"M = -d_i/d_o","name_tr":"Büyütme"},
-    "eq096_diffraction_limit": {"formula":"θ ≈ 1.22 λ/D","name_tr":"Kırınım limiti"},
-    "eq097_bragg_law": {"formula":"nλ = 2d sinθ","name_tr":"Bragg yasası"},
-    "eq098_compton_shift": {"formula":"Δλ = h/(m_ec)(1-cosθ)","name_tr":"Compton kayması"},
-    "eq099_radiation_flux": {"formula":"F = L/(4πr²)","name_tr":"Işınım akısı"},
-    "eq100_virial_theorem": {"formula":"2K + U = 0","name_tr":"Virial teoremi"}
+    "eq001_euler_identity": {
+      "formula": "e^{iπ}+1=0",
+      "name_tr": "Euler özdeşliği"
+    },
+    "eq002_euler_formula": {
+      "formula": "e^{ix}=cos(x)+i sin(x)",
+      "name_tr": "Euler formülü"
+    },
+    "eq003_binomial_theorem": {
+      "formula": "(x+y)^n = Σ C(n,k)x^{n-k}y^k",
+      "name_tr": "Binom teoremi"
+    },
+    "eq004_taylor_series": {
+      "formula": "f(x)=Σ f^(n)(a)(x-a)^n/n!",
+      "name_tr": "Taylor serisi"
+    },
+    "eq005_fourier_series": {
+      "formula": "f(x)=a0/2+Σ(an cos(nx)+bn sin(nx))",
+      "name_tr": "Fourier serisi"
+    },
+    "eq006_gaussian_integral": {
+      "formula": "∫ e^{-x^2}dx = √π",
+      "name_tr": "Gaussian integral"
+    },
+    "eq007_cauchy_schwarz": {
+      "formula": "|⟨x,y⟩| ≤ ||x|| ||y||",
+      "name_tr": "Cauchy-Schwarz eşitsizliği"
+    },
+    "eq008_stokes_theorem": {
+      "formula": "∮ F·dr = ∬ (∇×F)·dS",
+      "name_tr": "Stokes teoremi"
+    },
+    "eq009_gauss_divergence": {
+      "formula": "∭ (∇·F)dV = ∬ F·dS",
+      "name_tr": "Gauss diverjans teoremi"
+    },
+    "eq010_green_theorem": {
+      "formula": "∮(Ldx+Mdy)=∬(∂M/∂x-∂L/∂y)dA",
+      "name_tr": "Green teoremi"
+    },
+    "eq011_planck_law": {
+      "formula": "B(ν,T)=(2hν^3/c^2)/(e^{hν/kT}-1)",
+      "name_tr": "Planck ışıma yasası"
+    },
+    "eq012_wien_law": {
+      "formula": "λ_max T = b",
+      "name_tr": "Wien kayma yasası"
+    },
+    "eq013_debroglie": {
+      "formula": "λ = h/p",
+      "name_tr": "de Broglie dalga boyu"
+    },
+    "eq014_bohr_energy": {
+      "formula": "E_n = -13.6 eV / n^2",
+      "name_tr": "Bohr enerji seviyeleri"
+    },
+    "eq015_bohr_radius_formula": {
+      "formula": "a0 = 4π ε0 ħ² / (m_e e²)",
+      "name_tr": "Bohr yarıçapı formülü"
+    },
+    "eq016_radiation_pressure": {
+      "formula": "P = u/3",
+      "name_tr": "Işınım basıncı"
+    },
+    "eq017_blackbody_energy_density": {
+      "formula": "u = aT^4",
+      "name_tr": "Kara cisim enerji yoğunluğu"
+    },
+    "eq018_electric_potential": {
+      "formula": "V = kq/r",
+      "name_tr": "Elektrik potansiyeli"
+    },
+    "eq019_capacitance": {
+      "formula": "C = Q/V",
+      "name_tr": "Kapasitans"
+    },
+    "eq020_parallel_capacitors": {
+      "formula": "C_eq = Σ C_i",
+      "name_tr": "Paralel kapasitörler"
+    },
+    "eq021_series_capacitors": {
+      "formula": "1/C_eq = Σ 1/C_i",
+      "name_tr": "Seri kapasitörler"
+    },
+    "eq022_ohm_law": {
+      "formula": "V = IR",
+      "name_tr": "Ohm yasası"
+    },
+    "eq023_resistor_power": {
+      "formula": "P = I^2 R",
+      "name_tr": "Direnç gücü"
+    },
+    "eq024_inductor_voltage": {
+      "formula": "V = L dI/dt",
+      "name_tr": "Endüktör voltajı"
+    },
+    "eq025_capacitor_current": {
+      "formula": "I = C dV/dt",
+      "name_tr": "Kapasitör akımı"
+    },
+    "eq026_rl_time_constant": {
+      "formula": "τ = L/R",
+      "name_tr": "RL zaman sabiti"
+    },
+    "eq027_rc_time_constant": {
+      "formula": "τ = RC",
+      "name_tr": "RC zaman sabiti"
+    },
+    "eq028_lc_frequency": {
+      "formula": "ω = 1/√(LC)",
+      "name_tr": "LC rezonans frekansı"
+    },
+    "eq029_poynting_vector": {
+      "formula": "S = (1/μ0)(E×B)",
+      "name_tr": "Poynting vektörü"
+    },
+    "eq030_em_wave_speed": {
+      "formula": "c = 1/√(μ0 ε0)",
+      "name_tr": "EM dalga hızı"
+    },
+    "eq031_relativistic_gamma": {
+      "formula": "γ = 1/√(1-v²/c²)",
+      "name_tr": "Lorentz faktörü"
+    },
+    "eq032_relativistic_energy": {
+      "formula": "E = γmc²",
+      "name_tr": "Relativistik enerji"
+    },
+    "eq033_relativistic_momentum": {
+      "formula": "p = γmv",
+      "name_tr": "Relativistik momentum"
+    },
+    "eq034_time_dilation": {
+      "formula": "Δt = γ Δt0",
+      "name_tr": "Zaman genişlemesi"
+    },
+    "eq035_length_contraction": {
+      "formula": "L = L0/γ",
+      "name_tr": "Uzunluk kısalması"
+    },
+    "eq036_doppler_relativistic": {
+      "formula": "f' = f√((1+β)/(1-β))",
+      "name_tr": "Relativistik Doppler"
+    },
+    "eq037_gravitational_redshift": {
+      "formula": "z = Δλ/λ",
+      "name_tr": "Kütleçekimsel kırmızıya kayma"
+    },
+    "eq038_escape_velocity": {
+      "formula": "v_e = √(2GM/R)",
+      "name_tr": "Kaçış hızı"
+    },
+    "eq039_orbital_velocity": {
+      "formula": "v = √(GM/r)",
+      "name_tr": "Yörünge hızı"
+    },
+    "eq040_tidal_force": {
+      "formula": "F_t ∝ GMd/r³",
+      "name_tr": "Gelgit kuvveti"
+    },
+    "eq041_entropy_change": {
+      "formula": "dS = δQ/T",
+      "name_tr": "Entropi değişimi"
+    },
+    "eq042_carnot_efficiency": {
+      "formula": "η = 1 - Tc/Th",
+      "name_tr": "Carnot verimi"
+    },
+    "eq043_gibbs_free_energy": {
+      "formula": "G = H - TS",
+      "name_tr": "Gibbs enerjisi"
+    },
+    "eq044_helmholtz_energy": {
+      "formula": "F = U - TS",
+      "name_tr": "Helmholtz enerjisi"
+    },
+    "eq045_chemical_potential": {
+      "formula": "μ = (∂G/∂N)_T,P",
+      "name_tr": "Kimyasal potansiyel"
+    },
+    "eq046_entropy_statistical": {
+      "formula": "S = k ln Ω",
+      "name_tr": "Boltzmann entropisi"
+    },
+    "eq047_mean_free_path": {
+      "formula": "λ = 1/(√2 n σ)",
+      "name_tr": "Ortalama serbest yol"
+    },
+    "eq048_ideal_gas_energy": {
+      "formula": "U = (3/2)nRT",
+      "name_tr": "İdeal gaz iç enerji"
+    },
+    "eq049_speed_rms": {
+      "formula": "v_rms = √(3kT/m)",
+      "name_tr": "RMS hız"
+    },
+    "eq050_pressure_kinetic": {
+      "formula": "P = (1/3)ρ v_rms²",
+      "name_tr": "Kinetik basınç"
+    },
+    "eq051_diffusion_flux": {
+      "formula": "J = -D ∇C",
+      "name_tr": "Fick 1. yasa"
+    },
+    "eq052_fick_second": {
+      "formula": "∂C/∂t = D∇²C",
+      "name_tr": "Fick 2. yasa"
+    },
+    "eq053_advection_diffusion": {
+      "formula": "∂u/∂t + v·∇u = D∇²u",
+      "name_tr": "Adveksiyon-difüzyon"
+    },
+    "eq054_kolmogorov_energy": {
+      "formula": "E(k) ∝ k^{-5/3}",
+      "name_tr": "Kolmogorov spektrumu"
+    },
+    "eq055_reynolds_number": {
+      "formula": "Re = ρvL/μ",
+      "name_tr": "Reynolds sayısı"
+    },
+    "eq056_mach_number": {
+      "formula": "M = v/c_s",
+      "name_tr": "Mach sayısı"
+    },
+    "eq057_prandtl_number": {
+      "formula": "Pr = ν/α",
+      "name_tr": "Prandtl sayısı"
+    },
+    "eq058_nusselt_number": {
+      "formula": "Nu = hL/k",
+      "name_tr": "Nusselt sayısı"
+    },
+    "eq059_schmidt_number": {
+      "formula": "Sc = ν/D",
+      "name_tr": "Schmidt sayısı"
+    },
+    "eq060_grashof_number": {
+      "formula": "Gr = gβΔTL³/ν²",
+      "name_tr": "Grashof sayısı"
+    },
+    "eq061_logarithm_rule": {
+      "formula": "log(ab)=log a + log b",
+      "name_tr": "Log çarpım kuralı"
+    },
+    "eq062_log_division": {
+      "formula": "log(a/b)=log a - log b",
+      "name_tr": "Log bölme kuralı"
+    },
+    "eq063_log_power": {
+      "formula": "log(a^b)=b log a",
+      "name_tr": "Log üs kuralı"
+    },
+    "eq064_exponential_growth": {
+      "formula": "N=N0 e^{rt}",
+      "name_tr": "Üstel büyüme"
+    },
+    "eq065_half_life": {
+      "formula": "t½ = ln2 / λ",
+      "name_tr": "Yarı ömür"
+    },
+    "eq066_radioactive_decay": {
+      "formula": "N=N0 e^{-λt}",
+      "name_tr": "Radyoaktif bozunma"
+    },
+    "eq067_logistic_solution": {
+      "formula": "N(t)=K/(1+Ae^{-rt})",
+      "name_tr": "Lojistik çözüm"
+    },
+    "eq068_population_equilibrium": {
+      "formula": "N*=K",
+      "name_tr": "Lojistik denge"
+    },
+    "eq069_basic_reproduction": {
+      "formula": "R0 = β/γ",
+      "name_tr": "Epidemi R0"
+    },
+    "eq070_sir_model": {
+      "formula": "dI/dt = βSI - γI",
+      "name_tr": "SIR epidemik model"
+    },
+    "eq071_lorentz_force": {
+      "formula": "F = q(E + v×B)",
+      "name_tr": "Lorentz kuvveti"
+    },
+    "eq072_cyclotron_frequency": {
+      "formula": "ω = qB/m",
+      "name_tr": "Siklotron frekansı"
+    },
+    "eq073_larmor_radius": {
+      "formula": "r = mv/(qB)",
+      "name_tr": "Larmor yarıçapı"
+    },
+    "eq074_magnetic_energy": {
+      "formula": "U = (1/2)LI²",
+      "name_tr": "Manyetik enerji"
+    },
+    "eq075_capacitor_energy": {
+      "formula": "U = (1/2)CV²",
+      "name_tr": "Kapasitör enerji"
+    },
+    "eq076_energy_density_E": {
+      "formula": "u = ε0 E²/2",
+      "name_tr": "Elektrik enerji yoğunluğu"
+    },
+    "eq077_energy_density_B": {
+      "formula": "u = B²/(2μ0)",
+      "name_tr": "Manyetik enerji yoğunluğu"
+    },
+    "eq078_em_wave_energy": {
+      "formula": "u = ε0 E²",
+      "name_tr": "EM dalga enerji"
+    },
+    "eq079_radiation_force": {
+      "formula": "F = P/c",
+      "name_tr": "Işınım kuvveti"
+    },
+    "eq080_photon_energy": {
+      "formula": "E = hν",
+      "name_tr": "Foton enerjisi"
+    },
+    "eq081_wave_speed_string": {
+      "formula": "v = √(T/μ)",
+      "name_tr": "Tel dalga hızı"
+    },
+    "eq082_sound_speed": {
+      "formula": "c = √(γP/ρ)",
+      "name_tr": "Ses hızı"
+    },
+    "eq083_shm_period": {
+      "formula": "T = 2π√(m/k)",
+      "name_tr": "SHM periyodu"
+    },
+    "eq084_pendulum_period": {
+      "formula": "T = 2π√(L/g)",
+      "name_tr": "Sarkaç periyodu"
+    },
+    "eq085_damped_frequency": {
+      "formula": "ω' = √(ω0² - (b/2m)²)",
+      "name_tr": "Sönümlü frekans"
+    },
+    "eq086_resonance_peak": {
+      "formula": "ω_r ≈ √(ω0² - (b²/2m²))",
+      "name_tr": "Rezonans frekansı"
+    },
+    "eq087_quality_factor": {
+      "formula": "Q = ω0 m / b",
+      "name_tr": "Q faktörü"
+    },
+    "eq088_wave_intensity": {
+      "formula": "I = P/A",
+      "name_tr": "Dalga şiddeti"
+    },
+    "eq089_wave_power": {
+      "formula": "P = ½ ρ A² ω² v",
+      "name_tr": "Dalga gücü"
+    },
+    "eq090_group_velocity": {
+      "formula": "v_g = dω/dk",
+      "name_tr": "Grup hızı"
+    },
+    "eq091_phase_velocity": {
+      "formula": "v_p = ω/k",
+      "name_tr": "Faz hızı"
+    },
+    "eq092_snell_law": {
+      "formula": "n1 sinθ1 = n2 sinθ2",
+      "name_tr": "Snell yasası"
+    },
+    "eq093_refraction_index": {
+      "formula": "n = c/v",
+      "name_tr": "Kırılma indisi"
+    },
+    "eq094_lens_formula": {
+      "formula": "1/f = 1/d_o + 1/d_i",
+      "name_tr": "Mercek formülü"
+    },
+    "eq095_magnification": {
+      "formula": "M = -d_i/d_o",
+      "name_tr": "Büyütme"
+    },
+    "eq096_diffraction_limit": {
+      "formula": "θ ≈ 1.22 λ/D",
+      "name_tr": "Kırınım limiti"
+    },
+    "eq097_bragg_law": {
+      "formula": "nλ = 2d sinθ",
+      "name_tr": "Bragg yasası"
+    },
+    "eq098_compton_shift": {
+      "formula": "Δλ = h/(m_ec)(1-cosθ)",
+      "name_tr": "Compton kayması"
+    },
+    "eq099_radiation_flux": {
+      "formula": "F = L/(4πr²)",
+      "name_tr": "Işınım akısı"
+    },
+    "eq100_virial_theorem": {
+      "formula": "2K + U = 0",
+      "name_tr": "Virial teoremi"
+    }
   },
   "celestial_bodies": {
     "planets": [
@@ -1033,113 +1802,333 @@
         "name": "Mercury",
         "name_tr": "Merkür",
         "category": "planet",
-        "mass": {"value": 0.330e24, "unit": "kg"},
-        "diameter": {"value": 4879, "unit": "km"},
-        "density": {"value": 5427, "unit": "kg/m³"},
-        "gravity": {"value": 3.7, "unit": "m/s²"},
-        "escape_velocity": {"value": 4.3, "unit": "km/s"},
-        "rotation_period": {"value": 58.6, "unit": "days"},
-        "orbital_period": {"value": 88.0, "unit": "days"},
-        "distance_from_sun": {"value": 57.9e6, "unit": "km"},
+        "mass": {
+          "value": 3.3e+23,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 4879,
+          "unit": "km"
+        },
+        "density": {
+          "value": 5427,
+          "unit": "kg/m³"
+        },
+        "gravity": {
+          "value": 3.7,
+          "unit": "m/s²"
+        },
+        "escape_velocity": {
+          "value": 4.3,
+          "unit": "km/s"
+        },
+        "rotation_period": {
+          "value": 58.6,
+          "unit": "days"
+        },
+        "orbital_period": {
+          "value": 88.0,
+          "unit": "days"
+        },
+        "distance_from_sun": {
+          "value": 57900000.0,
+          "unit": "km"
+        },
         "moons": []
       },
       {
         "name": "Venus",
         "name_tr": "Venüs",
         "category": "planet",
-        "mass": {"value": 4.87e24, "unit": "kg"},
-        "diameter": {"value": 12104, "unit": "km"},
-        "density": {"value": 5243, "unit": "kg/m³"},
-        "gravity": {"value": 8.9, "unit": "m/s²"},
-        "escape_velocity": {"value": 10.4, "unit": "km/s"},
-        "rotation_period": {"value": -243.0, "unit": "days"},
-        "orbital_period": {"value": 224.7, "unit": "days"},
-        "distance_from_sun": {"value": 108.2e6, "unit": "km"},
+        "mass": {
+          "value": 4.87e+24,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 12104,
+          "unit": "km"
+        },
+        "density": {
+          "value": 5243,
+          "unit": "kg/m³"
+        },
+        "gravity": {
+          "value": 8.9,
+          "unit": "m/s²"
+        },
+        "escape_velocity": {
+          "value": 10.4,
+          "unit": "km/s"
+        },
+        "rotation_period": {
+          "value": -243.0,
+          "unit": "days"
+        },
+        "orbital_period": {
+          "value": 224.7,
+          "unit": "days"
+        },
+        "distance_from_sun": {
+          "value": 108200000.0,
+          "unit": "km"
+        },
         "moons": []
       },
       {
         "name": "Earth",
         "name_tr": "Dünya",
         "category": "planet",
-        "mass": {"value": 5.97e24, "unit": "kg"},
-        "diameter": {"value": 12756, "unit": "km"},
-        "density": {"value": 5514, "unit": "kg/m³"},
-        "gravity": {"value": 9.8, "unit": "m/s²"},
-        "escape_velocity": {"value": 11.2, "unit": "km/s"},
-        "rotation_period": {"value": 1.0, "unit": "days"},
-        "orbital_period": {"value": 365.2, "unit": "days"},
-        "distance_from_sun": {"value": 149.6e6, "unit": "km"},
-        "moons": ["Moon"]
+        "mass": {
+          "value": 5.97e+24,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 12756,
+          "unit": "km"
+        },
+        "density": {
+          "value": 5514,
+          "unit": "kg/m³"
+        },
+        "gravity": {
+          "value": 9.8,
+          "unit": "m/s²"
+        },
+        "escape_velocity": {
+          "value": 11.2,
+          "unit": "km/s"
+        },
+        "rotation_period": {
+          "value": 1.0,
+          "unit": "days"
+        },
+        "orbital_period": {
+          "value": 365.2,
+          "unit": "days"
+        },
+        "distance_from_sun": {
+          "value": 149600000.0,
+          "unit": "km"
+        },
+        "moons": [
+          "Moon"
+        ]
       },
       {
         "name": "Mars",
         "name_tr": "Mars",
         "category": "planet",
-        "mass": {"value": 0.642e24, "unit": "kg"},
-        "diameter": {"value": 6792, "unit": "km"},
-        "density": {"value": 3933, "unit": "kg/m³"},
-        "gravity": {"value": 3.7, "unit": "m/s²"},
-        "escape_velocity": {"value": 5.0, "unit": "km/s"},
-        "rotation_period": {"value": 1.03, "unit": "days"},
-        "orbital_period": {"value": 687.0, "unit": "days"},
-        "distance_from_sun": {"value": 227.9e6, "unit": "km"},
-        "moons": ["Phobos", "Deimos"]
+        "mass": {
+          "value": 6.42e+23,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 6792,
+          "unit": "km"
+        },
+        "density": {
+          "value": 3933,
+          "unit": "kg/m³"
+        },
+        "gravity": {
+          "value": 3.7,
+          "unit": "m/s²"
+        },
+        "escape_velocity": {
+          "value": 5.0,
+          "unit": "km/s"
+        },
+        "rotation_period": {
+          "value": 1.03,
+          "unit": "days"
+        },
+        "orbital_period": {
+          "value": 687.0,
+          "unit": "days"
+        },
+        "distance_from_sun": {
+          "value": 227900000.0,
+          "unit": "km"
+        },
+        "moons": [
+          "Phobos",
+          "Deimos"
+        ]
       },
       {
         "name": "Jupiter",
         "name_tr": "Jüpiter",
         "category": "planet",
-        "mass": {"value": 1898e24, "unit": "kg"},
-        "diameter": {"value": 142984, "unit": "km"},
-        "density": {"value": 1326, "unit": "kg/m³"},
-        "gravity": {"value": 23.1, "unit": "m/s²"},
-        "escape_velocity": {"value": 59.5, "unit": "km/s"},
-        "rotation_period": {"value": 0.41, "unit": "days"},
-        "orbital_period": {"value": 4331, "unit": "days"},
-        "distance_from_sun": {"value": 778.6e6, "unit": "km"},
-        "moons": ["Io", "Europa", "Ganymede", "Callisto"]
+        "mass": {
+          "value": 1.898e+27,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 142984,
+          "unit": "km"
+        },
+        "density": {
+          "value": 1326,
+          "unit": "kg/m³"
+        },
+        "gravity": {
+          "value": 23.1,
+          "unit": "m/s²"
+        },
+        "escape_velocity": {
+          "value": 59.5,
+          "unit": "km/s"
+        },
+        "rotation_period": {
+          "value": 0.41,
+          "unit": "days"
+        },
+        "orbital_period": {
+          "value": 4331,
+          "unit": "days"
+        },
+        "distance_from_sun": {
+          "value": 778600000.0,
+          "unit": "km"
+        },
+        "moons": [
+          "Io",
+          "Europa",
+          "Ganymede",
+          "Callisto"
+        ]
       },
       {
         "name": "Saturn",
         "name_tr": "Satürn",
         "category": "planet",
-        "mass": {"value": 568e24, "unit": "kg"},
-        "diameter": {"value": 120536, "unit": "km"},
-        "density": {"value": 687, "unit": "kg/m³"},
-        "gravity": {"value": 9.0, "unit": "m/s²"},
-        "escape_velocity": {"value": 35.5, "unit": "km/s"},
-        "rotation_period": {"value": 0.45, "unit": "days"},
-        "orbital_period": {"value": 10747, "unit": "days"},
-        "distance_from_sun": {"value": 1433.5e6, "unit": "km"},
-        "moons": ["Mimas", "Enceladus", "Tethys", "Dione", "Rhea", "Titan", "Iapetus"]
+        "mass": {
+          "value": 5.68e+26,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 120536,
+          "unit": "km"
+        },
+        "density": {
+          "value": 687,
+          "unit": "kg/m³"
+        },
+        "gravity": {
+          "value": 9.0,
+          "unit": "m/s²"
+        },
+        "escape_velocity": {
+          "value": 35.5,
+          "unit": "km/s"
+        },
+        "rotation_period": {
+          "value": 0.45,
+          "unit": "days"
+        },
+        "orbital_period": {
+          "value": 10747,
+          "unit": "days"
+        },
+        "distance_from_sun": {
+          "value": 1433500000.0,
+          "unit": "km"
+        },
+        "moons": [
+          "Mimas",
+          "Enceladus",
+          "Tethys",
+          "Dione",
+          "Rhea",
+          "Titan",
+          "Iapetus"
+        ]
       },
       {
         "name": "Uranus",
         "name_tr": "Uranüs",
         "category": "planet",
-        "mass": {"value": 86.8e24, "unit": "kg"},
-        "diameter": {"value": 51118, "unit": "km"},
-        "density": {"value": 1271, "unit": "kg/m³"},
-        "gravity": {"value": 8.7, "unit": "m/s²"},
-        "escape_velocity": {"value": 21.3, "unit": "km/s"},
-        "rotation_period": {"value": -0.72, "unit": "days"},
-        "orbital_period": {"value": 30589, "unit": "days"},
-        "distance_from_sun": {"value": 2872.5e6, "unit": "km"},
-        "moons": ["Ariel", "Umbriel", "Titania", "Oberon", "Miranda"]
+        "mass": {
+          "value": 8.68e+25,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 51118,
+          "unit": "km"
+        },
+        "density": {
+          "value": 1271,
+          "unit": "kg/m³"
+        },
+        "gravity": {
+          "value": 8.7,
+          "unit": "m/s²"
+        },
+        "escape_velocity": {
+          "value": 21.3,
+          "unit": "km/s"
+        },
+        "rotation_period": {
+          "value": -0.72,
+          "unit": "days"
+        },
+        "orbital_period": {
+          "value": 30589,
+          "unit": "days"
+        },
+        "distance_from_sun": {
+          "value": 2872500000.0,
+          "unit": "km"
+        },
+        "moons": [
+          "Ariel",
+          "Umbriel",
+          "Titania",
+          "Oberon",
+          "Miranda"
+        ]
       },
       {
         "name": "Neptune",
         "name_tr": "Neptün",
         "category": "planet",
-        "mass": {"value": 102e24, "unit": "kg"},
-        "diameter": {"value": 49528, "unit": "km"},
-        "density": {"value": 1638, "unit": "kg/m³"},
-        "gravity": {"value": 11.0, "unit": "m/s²"},
-        "escape_velocity": {"value": 23.5, "unit": "km/s"},
-        "rotation_period": {"value": 0.67, "unit": "days"},
-        "orbital_period": {"value": 59800, "unit": "days"},
-        "distance_from_sun": {"value": 4495.1e6, "unit": "km"},
-        "moons": ["Triton", "Nereid", "Proteus"]
+        "mass": {
+          "value": 1.02e+26,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 49528,
+          "unit": "km"
+        },
+        "density": {
+          "value": 1638,
+          "unit": "kg/m³"
+        },
+        "gravity": {
+          "value": 11.0,
+          "unit": "m/s²"
+        },
+        "escape_velocity": {
+          "value": 23.5,
+          "unit": "km/s"
+        },
+        "rotation_period": {
+          "value": 0.67,
+          "unit": "days"
+        },
+        "orbital_period": {
+          "value": 59800,
+          "unit": "days"
+        },
+        "distance_from_sun": {
+          "value": 4495100000.0,
+          "unit": "km"
+        },
+        "moons": [
+          "Triton",
+          "Nereid",
+          "Proteus"
+        ]
       }
     ],
     "dwarf_planets": [
@@ -1147,15 +2136,45 @@
         "name": "Pluto",
         "name_tr": "Plüton",
         "category": "dwarf_planet",
-        "mass": {"value": 0.0130e24, "unit": "kg"},
-        "diameter": {"value": 2370, "unit": "km"},
-        "density": {"value": 2095, "unit": "kg/m³"},
-        "gravity": {"value": 0.7, "unit": "m/s²"},
-        "escape_velocity": {"value": 1.3, "unit": "km/s"},
-        "rotation_period": {"value": -6.39, "unit": "days"},
-        "orbital_period": {"value": 90560, "unit": "days"},
-        "distance_from_sun": {"value": 5906.4e6, "unit": "km"},
-        "moons": ["Charon", "Styx", "Nix", "Kerberos", "Hydra"]
+        "mass": {
+          "value": 1.3e+22,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 2370,
+          "unit": "km"
+        },
+        "density": {
+          "value": 2095,
+          "unit": "kg/m³"
+        },
+        "gravity": {
+          "value": 0.7,
+          "unit": "m/s²"
+        },
+        "escape_velocity": {
+          "value": 1.3,
+          "unit": "km/s"
+        },
+        "rotation_period": {
+          "value": -6.39,
+          "unit": "days"
+        },
+        "orbital_period": {
+          "value": 90560,
+          "unit": "days"
+        },
+        "distance_from_sun": {
+          "value": 5906400000.0,
+          "unit": "km"
+        },
+        "moons": [
+          "Charon",
+          "Styx",
+          "Nix",
+          "Kerberos",
+          "Hydra"
+        ]
       }
     ],
     "moons": {
@@ -1163,22 +2182,40 @@
         {
           "name": "Moon",
           "name_tr": "Ay",
-          "mass": {"value": 0.073e24, "unit": "kg"},
-          "diameter": {"value": 3475, "unit": "km"}
+          "mass": {
+            "value": 7.3e+22,
+            "unit": "kg"
+          },
+          "diameter": {
+            "value": 3475,
+            "unit": "km"
+          }
         }
       ],
       "Mars": [
         {
           "name": "Phobos",
           "name_tr": "Fobos",
-          "mass": {"value": 10.6e15, "unit": "kg"},
-          "diameter": {"value": 22.2, "unit": "km"}
+          "mass": {
+            "value": 1.06e+16,
+            "unit": "kg"
+          },
+          "diameter": {
+            "value": 22.2,
+            "unit": "km"
+          }
         },
         {
           "name": "Deimos",
           "name_tr": "Deimos",
-          "mass": {"value": 2.4e15, "unit": "kg"},
-          "diameter": {"value": 12.6, "unit": "km"}
+          "mass": {
+            "value": 2400000000000000.0,
+            "unit": "kg"
+          },
+          "diameter": {
+            "value": 12.6,
+            "unit": "km"
+          }
         }
       ]
     },
@@ -1187,37 +2224,85 @@
         "name": "Ceres",
         "name_tr": "Ceres",
         "category": "dwarf_planet",
-        "mass": {"value": 9.38e20, "unit": "kg"},
-        "diameter": {"value": 939.4, "unit": "km"},
-        "density": {"value": 2160, "unit": "kg/m³"},
-        "orbital_period": {"value": 1680, "unit": "days"}
+        "mass": {
+          "value": 9.38e+20,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 939.4,
+          "unit": "km"
+        },
+        "density": {
+          "value": 2160,
+          "unit": "kg/m³"
+        },
+        "orbital_period": {
+          "value": 1680,
+          "unit": "days"
+        }
       },
       {
         "name": "Vesta",
         "name_tr": "Vesta",
         "category": "asteroid",
-        "mass": {"value": 2.59e20, "unit": "kg"},
-        "diameter": {"value": 525, "unit": "km"},
-        "density": {"value": 3456, "unit": "kg/m³"},
-        "orbital_period": {"value": 1325, "unit": "days"}
+        "mass": {
+          "value": 2.59e+20,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 525,
+          "unit": "km"
+        },
+        "density": {
+          "value": 3456,
+          "unit": "kg/m³"
+        },
+        "orbital_period": {
+          "value": 1325,
+          "unit": "days"
+        }
       },
       {
         "name": "Pallas",
         "name_tr": "Pallas",
         "category": "asteroid",
-        "mass": {"value": 2.11e20, "unit": "kg"},
-        "diameter": {"value": 512, "unit": "km"},
-        "density": {"value": 2800, "unit": "kg/m³"},
-        "orbital_period": {"value": 1686, "unit": "days"}
+        "mass": {
+          "value": 2.11e+20,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 512,
+          "unit": "km"
+        },
+        "density": {
+          "value": 2800,
+          "unit": "kg/m³"
+        },
+        "orbital_period": {
+          "value": 1686,
+          "unit": "days"
+        }
       },
       {
         "name": "Hygiea",
         "name_tr": "Hygiea",
         "category": "asteroid",
-        "mass": {"value": 8.32e19, "unit": "kg"},
-        "diameter": {"value": 434, "unit": "km"},
-        "density": {"value": 1940, "unit": "kg/m³"},
-        "orbital_period": {"value": 2030, "unit": "days"}
+        "mass": {
+          "value": 8.32e+19,
+          "unit": "kg"
+        },
+        "diameter": {
+          "value": 434,
+          "unit": "km"
+        },
+        "density": {
+          "value": 1940,
+          "unit": "kg/m³"
+        },
+        "orbital_period": {
+          "value": 2030,
+          "unit": "days"
+        }
       }
     ],
     "meteor_showers": [
@@ -1371,34 +2456,81 @@
         "atomic_number": 26,
         "atomic_mass": 55.845,
         "physical_properties": {
-          "density": {"value": 7874, "unit": "kg/m³"},
-          "melting_point": {"value": 1811, "unit": "K"},
-          "boiling_point": {"value": 3134, "unit": "K"},
-          "condensation_point": {"value": 3134, "unit": "K", "note": "Kaynama noktasına eşittir."},
-          "freezing_point": {"value": 1811, "unit": "K", "note": "Erime noktasına eşittir."}
+          "density": {
+            "value": 7874,
+            "unit": "kg/m³"
+          },
+          "melting_point": {
+            "value": 1811,
+            "unit": "K"
+          },
+          "boiling_point": {
+            "value": 3134,
+            "unit": "K"
+          },
+          "condensation_point": {
+            "value": 3134,
+            "unit": "K",
+            "note": "Kaynama noktasına eşittir."
+          },
+          "freezing_point": {
+            "value": 1811,
+            "unit": "K",
+            "note": "Erime noktasına eşittir."
+          }
         },
         "mechanical_properties": {
-          "young_modulus": {"value": 211, "unit": "GPa", "name_tr": "Elastisite Modülü"},
-          "yield_strength": {"value": 170, "unit": "MPa", "name_tr": "Akma Dayanımı (Ezilme başlangıcı)"}
+          "young_modulus": {
+            "value": 211,
+            "unit": "GPa",
+            "name_tr": "Elastisite Modülü"
+          },
+          "yield_strength": {
+            "value": 170,
+            "unit": "MPa",
+            "name_tr": "Akma Dayanımı (Ezilme başlangıcı)"
+          }
         },
         "simulation_parameters": {
           "diffusion": {
             "model": "Fickian",
-            "self_diffusion_coefficient": {"formula": "D = D_0 * exp(-Q / (R * T))", "D_0": "6.2e-5 m²/s", "Q": "251 kJ/mol"},
+            "self_diffusion_coefficient": {
+              "formula": "D = D_0 * exp(-Q / (R * T))",
+              "D_0": "6.2e-5 m²/s",
+              "Q": "251 kJ/mol"
+            },
             "particle_dependent_note": "Parçacık sayısı arttıkça, dislokasyon ve boşluk (vacancy) yoğunluğu artar, bu da difüzyon katsayısını (D) etkiler. Bu etki, simülasyonda monte carlo veya faz alanı (phase-field) modelleriyle eklenebilir."
           },
           "pde_models": {
-            "heat_transfer": {"equation": "∂T/∂t = α ∇²T + Q/(ρ*c_p)", "α (thermal_diffusivity)": "2.3e-5 m²/s"},
-            "structural_mechanics": {"equation": "σ = E * ε", "note": "Hooke Yasası'nın tensör formu. Plastik deformasyon için von Mises akma kriteri eklenir."}
+            "heat_transfer": {
+              "equation": "∂T/∂t = α ∇²T + Q/(ρ*c_p)",
+              "α (thermal_diffusivity)": "2.3e-5 m²/s"
+            },
+            "structural_mechanics": {
+              "equation": "σ = E * ε",
+              "note": "Hooke Yasası'nın tensör formu. Plastik deformasyon için von Mises akma kriteri eklenir."
+            }
           },
           "fluid_dynamics": {
-            "kinematic_viscosity_liquid": {"value": 6.98e-7, "unit": "m²/s", "at_temp": "1811 K"},
+            "kinematic_viscosity_liquid": {
+              "value": 6.98e-07,
+              "unit": "m²/s",
+              "at_temp": "1811 K"
+            },
             "vortex_mechanism_note": "Ergimiş demirin döküm veya karıştırma süreçlerinde oluşan girdaplar (vortex), Navier-Stokes denklemleri (pde->navier_stokes) ile modellenir. Türbülans için k-epsilon veya k-omega gibi alt modeller kullanılır."
           }
         },
         "alloys": {
-          "steel_carbon": {"name_tr": "Karbon Çeliği", "composition": "Fe, C (0.2-2.1%)", "yield_strength": "250-1600 MPa"},
-          "stainless_steel": {"name_tr": "Paslanmaz Çelik", "composition": "Fe, Cr (>10.5%), Ni", "yield_strength": "205-827 MPa"}
+          "steel_carbon": {
+            "name_tr": "Karbon Çeliği",
+            "composition": "Fe, C (0.2-2.1%)",
+            "yield_strength": "250-1600 MPa"
+          },
+          "stainless_steel": {
+            "name_tr": "Paslanmaz Çelik",
+            "composition": "Fe, Cr (>10.5%), Ni",
+            "yield_strength": "205-827 MPa"
+          }
         }
       },
       "Al": {
@@ -1408,23 +2540,47 @@
         "atomic_number": 13,
         "atomic_mass": 26.982,
         "physical_properties": {
-          "density": {"value": 2700, "unit": "kg/m³"},
-          "melting_point": {"value": 933.47, "unit": "K"},
-          "boiling_point": {"value": 2792, "unit": "K"}
+          "density": {
+            "value": 2700,
+            "unit": "kg/m³"
+          },
+          "melting_point": {
+            "value": 933.47,
+            "unit": "K"
+          },
+          "boiling_point": {
+            "value": 2792,
+            "unit": "K"
+          }
         },
         "mechanical_properties": {
-          "young_modulus": {"value": 70, "unit": "GPa"},
-          "yield_strength": {"value": 20, "unit": "MPa", "note": "Saf halde çok düşüktür."}
+          "young_modulus": {
+            "value": 70,
+            "unit": "GPa"
+          },
+          "yield_strength": {
+            "value": 20,
+            "unit": "MPa",
+            "note": "Saf halde çok düşüktür."
+          }
         },
         "simulation_parameters": {
-            "pde_models": {
-                "note": "PDE modelleri, malzemenin termal ve mekanik davranışını tanımlamak için kullanılır. Örnek: Isı denklemi, dalga denklemi (yapısal titreşimler için).",
-                "heat_equation": "∂u/∂t = α ∇²u"
-            }
+          "pde_models": {
+            "note": "PDE modelleri, malzemenin termal ve mekanik davranışını tanımlamak için kullanılır. Örnek: Isı denklemi, dalga denklemi (yapısal titreşimler için).",
+            "heat_equation": "∂u/∂t = α ∇²u"
+          }
         },
         "alloys": {
-          "Al-6061": {"name_tr": "6061 Alaşımı", "composition": "Al, Mg, Si", "yield_strength": "276 MPa"},
-          "Al-7075": {"name_tr": "7075 Alaşımı (Uçak Alüminyumu)", "composition": "Al, Zn, Mg, Cu", "yield_strength": "503 MPa"}
+          "Al-6061": {
+            "name_tr": "6061 Alaşımı",
+            "composition": "Al, Mg, Si",
+            "yield_strength": "276 MPa"
+          },
+          "Al-7075": {
+            "name_tr": "7075 Alaşımı (Uçak Alüminyumu)",
+            "composition": "Al, Zn, Mg, Cu",
+            "yield_strength": "503 MPa"
+          }
         }
       },
       "Cu": {
@@ -1434,22 +2590,45 @@
         "atomic_number": 29,
         "atomic_mass": 63.546,
         "physical_properties": {
-          "density": {"value": 8960, "unit": "kg/m³"},
-          "melting_point": {"value": 1357.77, "unit": "K"},
-          "boiling_point": {"value": 2835, "unit": "K"}
+          "density": {
+            "value": 8960,
+            "unit": "kg/m³"
+          },
+          "melting_point": {
+            "value": 1357.77,
+            "unit": "K"
+          },
+          "boiling_point": {
+            "value": 2835,
+            "unit": "K"
+          }
         },
         "mechanical_properties": {
-          "young_modulus": {"value": 110, "unit": "GPa"},
-          "yield_strength": {"value": 70, "unit": "MPa"}
+          "young_modulus": {
+            "value": 110,
+            "unit": "GPa"
+          },
+          "yield_strength": {
+            "value": 70,
+            "unit": "MPa"
+          }
         },
         "simulation_parameters": {
-            "diffusion": {
-                "note": "Parçacık sayısına bağlı difüzyon, özellikle alaşımların homojenizasyonu ve tane büyümesi simülasyonlarında kritiktir."
-            }
+          "diffusion": {
+            "note": "Parçacık sayısına bağlı difüzyon, özellikle alaşımların homojenizasyonu ve tane büyümesi simülasyonlarında kritiktir."
+          }
         },
         "alloys": {
-          "brass": {"name_tr": "Pirinç", "composition": "Cu, Zn", "yield_strength": "95-380 MPa"},
-          "bronze": {"name_tr": "Bronz", "composition": "Cu, Sn", "yield_strength": "125-800 MPa"}
+          "brass": {
+            "name_tr": "Pirinç",
+            "composition": "Cu, Zn",
+            "yield_strength": "95-380 MPa"
+          },
+          "bronze": {
+            "name_tr": "Bronz",
+            "composition": "Cu, Sn",
+            "yield_strength": "125-800 MPa"
+          }
         }
       },
       "Ti": {
@@ -1459,21 +2638,41 @@
         "atomic_number": 22,
         "atomic_mass": 47.867,
         "physical_properties": {
-          "density": {"value": 4506, "unit": "kg/m³"},
-          "melting_point": {"value": 1941, "unit": "K"},
-          "boiling_point": {"value": 3560, "unit": "K"}
+          "density": {
+            "value": 4506,
+            "unit": "kg/m³"
+          },
+          "melting_point": {
+            "value": 1941,
+            "unit": "K"
+          },
+          "boiling_point": {
+            "value": 3560,
+            "unit": "K"
+          }
         },
         "mechanical_properties": {
-          "young_modulus": {"value": 116, "unit": "GPa"},
-          "yield_strength": {"value": 220, "unit": "MPa"}
+          "young_modulus": {
+            "value": 116,
+            "unit": "GPa"
+          },
+          "yield_strength": {
+            "value": 220,
+            "unit": "MPa"
+          }
         },
         "simulation_parameters": {
-            "vortex_mechanism": {
-                "note": "Ergimiş titanyum gibi reaktif metallerin vakum ark ergitme (VAR) veya soğuk pota indüksiyon ergitme (CIM) süreçlerinde oluşan akışkan girdapları, nihai malzemenin saflığını ve homojenliğini belirler. Bu simülasyonlar genellikle manyetohidrodinamik (MHD) denklemlerini içerir."
-            }
+          "vortex_mechanism": {
+            "note": "Ergimiş titanyum gibi reaktif metallerin vakum ark ergitme (VAR) veya soğuk pota indüksiyon ergitme (CIM) süreçlerinde oluşan akışkan girdapları, nihai malzemenin saflığını ve homojenliğini belirler. Bu simülasyonlar genellikle manyetohidrodinamik (MHD) denklemlerini içerir."
+          }
         },
         "alloys": {
-          "Ti-6Al-4V": {"name_tr": "Ti-6Al-4V (Grade 5)", "composition": "Ti, Al (6%), V (4%)", "yield_strength": "830 MPa", "note": "En yaygın titanyum alaşımıdır."}
+          "Ti-6Al-4V": {
+            "name_tr": "Ti-6Al-4V (Grade 5)",
+            "composition": "Ti, Al (6%), V (4%)",
+            "yield_strength": "830 MPa",
+            "note": "En yaygın titanyum alaşımıdır."
+          }
         }
       }
     }
