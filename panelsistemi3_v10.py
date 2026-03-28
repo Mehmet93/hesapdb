@@ -5290,10 +5290,7 @@ function _renderReplayWindows(windows){
           title="Bu sütun için koşullu hesaplama">🧮 Hesapla</button>
         <button class="btn ghost" style="font-size:10px;padding:2px 7px;margin-left:4px;background:linear-gradient(135deg,#5d3fd3,#9b59b6);color:#fff;border:none"
           onclick="replayWindowOfflineReload(${i},event)"
-          title="NLP replay veritabanından en uygun eşleşmeyi bulup internetsiz yeniden hesapla">🟣 NLP DB</button>
-        <button class="btn ghost" style="font-size:10px;padding:2px 7px;margin-left:4px;background:linear-gradient(135deg,#2f3640,#57606f);color:#fff;border:1px solid #7f8fa6"
-          onclick="hideReplayWindow(${i},event)"
-          title="Bu sütunu sadece Sohbet Akışı listesinden kaldırır (veritabanına dokunmaz)">🧹 Kaldır</button>
+          title="NLP veritabanından T4LaZOUaN04 eşleşmesi bulunursa internetsiz yeniden hesapla">🟣 NLP DB</button>
       </div>
     </div>`;
   });
@@ -5387,7 +5384,6 @@ function replayWindowOfflineReload(idx, evt){
   if(!win) return;
   const targetVid = (win.video_id || '').trim();
   const targetDate = (win.window_date || '').trim();
-  const targetTitle = (win.title || '').trim();
   if(!targetVid){
     status('❌ Hedef sütunda video_id bulunamadı', 4000);
     return;
@@ -5396,14 +5392,14 @@ function replayWindowOfflineReload(idx, evt){
   $.post('/api/replay/window/offline-recalc',{
     target_video_id: targetVid,
     target_window_date: targetDate,
-    target_title: targetTitle
+    source_video_id: 'T4LaZOUaN04'
   }, function(d){
     if(!d.success){
       status('❌ ' + (d.error || 'Offline yeniden hesaplama başarısız'), 5000);
       return;
     }
     const moved = Number(d.messages_copied || 0);
-    const src = d.source_video_id || '-';
+    const src = d.source_video_id || 'T4LaZOUaN04';
     status(`✅ ${src} verisi taşındı (${moved} mesaj). Pencereler yenileniyor...`, 5000);
     _replayWindowsCache = null;
     _replayMsgCache = {};
@@ -7180,102 +7176,29 @@ def create_app():
     @app.route("/api/replay/window/offline-recalc", methods=["POST"])
     def api_replay_window_offline_recalc():
         """
-        İnternete bağlanmadan, NLP replay-chat veritabanındaki en uygun kaynak
-        video/sütunu bularak mesajları hedef sütuna kopyalar.
+        İnternete bağlanmadan, daha önce NLP replay-chat analizi ile DB'ye düşen
+        bir kaynak videonun (varsayılan: T4LaZOUaN04) mesajlarını hedef sütuna kopyalar.
         """
         target_vid = (request.form.get("target_video_id", "") or "").strip()
         target_date = (request.form.get("target_window_date", "") or "").strip()
-        target_title = (request.form.get("target_title", "") or "").strip()
-        preferred_source_vid = (request.form.get("source_video_id", "") or "").strip()
+        source_vid = (request.form.get("source_video_id", "T4LaZOUaN04") or "").strip()
 
         if not target_vid:
             return jsonify({"success": False, "error": "target_video_id zorunlu"})
-
-        def _pick_source_video() -> Tuple[str, str]:
-            """
-            Kaynak video seçimi (hard-code yok):
-              1) İstekte source_video_id verildiyse ve DB'de replay_chat'i varsa onu kullan.
-              2) Hedef video_id için replay_chat varsa doğrudan onu kullan.
-              3) Aksi halde replay_chat pencereleri arasında tarih + başlık skoruyla en uygun adayı seç.
-            """
-            # 1) Tercihli kaynak (opsiyonel)
-            if preferred_source_vid:
-                chk = db_exec(
-                    "SELECT 1 FROM messages WHERE deleted=0 AND source_type='replay_chat' AND video_id=? LIMIT 1",
-                    (preferred_source_vid,), fetch="one"
-                )
-                if chk:
-                    return preferred_source_vid, "preferred_source"
-
-            # 2) Hedef video'da replay_chat var mı?
-            chk_self = db_exec(
-                "SELECT 1 FROM messages WHERE deleted=0 AND source_type='replay_chat' AND video_id=? LIMIT 1",
-                (target_vid,), fetch="one"
-            )
-            if chk_self:
-                return target_vid, "same_video"
-
-            # 3) Tüm replay_chat pencerelerinden en iyi adayı seç
-            candidates = db_exec(
-                "SELECT COALESCE(video_id,'') AS video_id, COALESCE(video_date,'') AS video_date,"
-                " MAX(COALESCE(title,'')) AS title, COUNT(*) AS msg_count"
-                " FROM messages"
-                " WHERE deleted=0 AND source_type='replay_chat' AND COALESCE(video_id,'')<>''"
-                " GROUP BY COALESCE(video_id,''), COALESCE(video_date,'')"
-                " ORDER BY msg_count DESC",
-                fetch="all"
-            ) or []
-            if not candidates:
-                return "", "no_candidates"
-
-            best_vid = ""
-            best_score = -1.0
-            best_reason = "fallback_count"
-            t_date = (target_date or "").strip()
-            t_title = (target_title or "").strip()
-            for c in candidates:
-                c_vid = (c.get("video_id") or "").strip()
-                if not c_vid:
-                    continue
-                d_score = 0.0
-                c_date = (c.get("video_date") or "").strip()
-                if t_date and c_date and c_date[:8] == t_date[:8]:
-                    d_score = 1.0
-                elif t_date and c_date:
-                    try:
-                        d1 = datetime.strptime(t_date[:8], "%Y%m%d")
-                        d2 = datetime.strptime(c_date[:8], "%Y%m%d")
-                        delta = abs((d1 - d2).days)
-                        d_score = max(0.0, 1.0 - (delta / 30.0))
-                    except Exception:
-                        d_score = 0.0
-                t_score = _title_similarity(t_title, (c.get("title") or ""))
-                cnt_score = min(1.0, (float(c.get("msg_count") or 0) / 500.0))
-                score = (0.55 * d_score) + (0.35 * t_score) + (0.10 * cnt_score)
-                if score > best_score:
-                    best_score = score
-                    best_vid = c_vid
-                    best_reason = "date_title_count"
-            return best_vid, best_reason
-
-        source_vid, source_reason = _pick_source_video()
         if not source_vid:
-            return jsonify({
-                "success": False,
-                "error": "NLP replay veritabanında uygun kaynak sütun bulunamadı"
-            })
+            source_vid = "T4LaZOUaN04"
 
         src_rows = db_exec(
             "SELECT id, title, author, author_cid, message, timestamp, lang, script_type, video_date"
             " FROM messages"
-            " WHERE deleted=0 AND video_id=? AND source_type IN ('replay_chat','replay_chat_offline_clone')"
+            " WHERE deleted=0 AND video_id=? AND source_type='replay_chat'"
             " ORDER BY timestamp ASC",
             (source_vid,), fetch="all"
         ) or []
         if not src_rows:
             return jsonify({
                 "success": False,
-                "error": f"NLP replay veritabanında {source_vid} için chat-replay mesajı bulunamadı"
+                "error": f"NLP replay veritabanında {source_vid} için mesaj bulunamadı"
             })
 
         delete_date = target_date
@@ -7339,7 +7262,6 @@ def create_app():
             "target_video_id": target_vid,
             "target_window_date": target_date,
             "source_video_id": source_vid,
-            "source_reason": source_reason,
             "messages_copied": copied
         })
 
