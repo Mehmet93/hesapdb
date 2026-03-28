@@ -634,6 +634,212 @@ def db_exec(sql: str, params: tuple = (), fetch: str = None):
                 return [dict(r) for r in rows]
             return cur.lastrowid
 
+class ReplayFlowNormalizer:
+    """
+    Replay-chat akışını ham messages tablosundan normalize edilmiş katmana taşır.
+    Ham veriye dokunmaz; UI ve NLP replay akışını normalize edilmiş tablolardan besler.
+    """
+    VALID_SOURCES = ("replay_chat", "replay_chat_offline_clone")
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+        self.conn.row_factory = sqlite3.Row
+
+    def rebuild(self):
+        self.create_tables()
+        clusters = self.detect_video_clusters()
+        self.normalize_messages(clusters)
+        self.rebuild_windows()
+        self.reinforce_qlearning()
+        self.conn.commit()
+
+    def create_tables(self):
+        self.conn.executescript("""
+        CREATE TABLE IF NOT EXISTS normalized_replay_messages(
+            norm_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_msg_id TEXT UNIQUE,
+            video_id TEXT,
+            canonical_video_id TEXT,
+            title TEXT,
+            video_date TEXT,
+            author TEXT,
+            message TEXT,
+            raw_timestamp INTEGER,
+            normalized_timestamp INTEGER,
+            relative_second INTEGER,
+            replay_order INTEGER,
+            source_type TEXT,
+            confidence REAL DEFAULT 1.0
+        );
+        CREATE TABLE IF NOT EXISTS replay_windows_index(
+            window_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id TEXT,
+            video_date TEXT,
+            title TEXT,
+            msg_count INTEGER,
+            start_ts INTEGER,
+            end_ts INTEGER,
+            normalized INTEGER DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS replay_qlearning(
+            state_key TEXT PRIMARY KEY,
+            best_action TEXT,
+            q_value REAL DEFAULT 0.0,
+            visits INTEGER DEFAULT 0,
+            updated_at INTEGER DEFAULT (strftime('%s','now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_norm_video ON normalized_replay_messages(canonical_video_id, replay_order);
+        CREATE INDEX IF NOT EXISTS idx_norm_date ON normalized_replay_messages(video_date, normalized_timestamp);
+        CREATE INDEX IF NOT EXISTS idx_windows_date ON replay_windows_index(video_date, start_ts);
+        """)
+
+    def detect_video_clusters(self) -> Dict[str, str]:
+        rows = self.conn.execute(
+            "SELECT COALESCE(video_id,'') AS video_id, MAX(COALESCE(title,'')) AS title,"
+            " MAX(COALESCE(video_date,'')) AS video_date, COUNT(*) AS cnt"
+            " FROM messages WHERE deleted=0 AND source_type IN (?,?)"
+            " GROUP BY COALESCE(video_id,'')",
+            self.VALID_SOURCES
+        ).fetchall()
+        clusters: Dict[str, str] = {}
+        sorted_rows = sorted(rows, key=lambda r: int(r["cnt"] or 0), reverse=True)
+        for r in sorted_rows:
+            vid = (r["video_id"] or "").strip()
+            if not vid or vid in clusters:
+                continue
+            clusters[vid] = vid
+            title = (r["title"] or "").strip()
+            date = (r["video_date"] or "").replace("-", "").strip()
+            for cand in sorted_rows:
+                cvid = (cand["video_id"] or "").strip()
+                if not cvid or cvid in clusters:
+                    continue
+                sim = _title_similarity(title, (cand["title"] or "").strip())
+                if sim < 0.82:
+                    continue
+                cdate = (cand["video_date"] or "").replace("-", "").strip()
+                close = False
+                if date and cdate:
+                    try:
+                        d1 = datetime.strptime(date[:8], "%Y%m%d")
+                        d2 = datetime.strptime(cdate[:8], "%Y%m%d")
+                        close = abs((d1 - d2).days) <= 3
+                    except Exception:
+                        close = False
+                if close or not date or not cdate:
+                    clusters[cvid] = vid
+        return clusters
+
+    def normalize_messages(self, clusters: Dict[str, str]):
+        self.conn.execute("DELETE FROM normalized_replay_messages")
+        rows = self.conn.execute(
+            "SELECT id, COALESCE(video_id,'') AS video_id, COALESCE(video_date,'') AS video_date,"
+            " COALESCE(title,'') AS title, COALESCE(author,'') AS author,"
+            " COALESCE(message,'') AS message, COALESCE(source_type,'') AS source_type,"
+            " COALESCE(timestamp,0) AS timestamp"
+            " FROM messages WHERE deleted=0 AND source_type IN (?,?)",
+            self.VALID_SOURCES
+        ).fetchall()
+
+        grouped: Dict[str, List[dict]] = defaultdict(list)
+        for r in rows:
+            vid = (r["video_id"] or "").strip()
+            canonical = clusters.get(vid, vid or "UNKNOWN")
+            grouped[canonical].append(dict(r))
+
+        insert_sql = (
+            "INSERT OR REPLACE INTO normalized_replay_messages"
+            " (source_msg_id, video_id, canonical_video_id, title, video_date, author, message,"
+            "  raw_timestamp, normalized_timestamp, relative_second, replay_order, source_type, confidence)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        for canonical, msgs in grouped.items():
+            epoch_values = [int(m.get("timestamp") or 0) for m in msgs if int(m.get("timestamp") or 0) >= 1_000_000_000]
+            base_epoch = min(epoch_values) if epoch_values else 0
+            for m in msgs:
+                ts = int(m.get("timestamp") or 0)
+                if ts >= 1_000_000_000 and base_epoch:
+                    rel = max(0, ts - base_epoch)
+                    norm_ts = base_epoch + rel
+                else:
+                    rel = max(0, ts)
+                    norm_ts = rel
+                m["_relative"] = rel
+                m["_norm_ts"] = norm_ts
+
+            msgs.sort(key=lambda x: (x.get("_relative", 0), (x.get("author") or "").lower(), x.get("id") or ""))
+            for order_idx, m in enumerate(msgs, start=1):
+                self.conn.execute(insert_sql, (
+                    m.get("id") or "",
+                    (m.get("video_id") or "").strip(),
+                    canonical,
+                    (m.get("title") or "").strip(),
+                    (m.get("video_date") or "").replace("-", "").strip(),
+                    (m.get("author") or "").strip(),
+                    (m.get("message") or "").strip(),
+                    int(m.get("timestamp") or 0),
+                    int(m.get("_norm_ts") or 0),
+                    int(m.get("_relative") or 0),
+                    int(order_idx),
+                    (m.get("source_type") or "").strip(),
+                    1.0,
+                ))
+
+    def rebuild_windows(self):
+        self.conn.execute("DELETE FROM replay_windows_index")
+        rows = self.conn.execute(
+            "SELECT canonical_video_id, MAX(COALESCE(video_id,'')) AS video_id,"
+            " MAX(COALESCE(video_date,'')) AS video_date, MAX(COALESCE(title,'')) AS title,"
+            " COUNT(*) AS msg_count, MIN(normalized_timestamp) AS start_ts,"
+            " MAX(normalized_timestamp) AS end_ts"
+            " FROM normalized_replay_messages"
+            " GROUP BY canonical_video_id"
+            " ORDER BY video_date DESC, end_ts DESC"
+        ).fetchall()
+        for r in rows:
+            self.conn.execute(
+                "INSERT INTO replay_windows_index(video_id, video_date, title, msg_count, start_ts, end_ts, normalized)"
+                " VALUES (?, ?, ?, ?, ?, ?, 1)",
+                (
+                    (r["video_id"] or "").strip(),
+                    (r["video_date"] or "").replace("-", "").strip(),
+                    (r["title"] or "").strip(),
+                    int(r["msg_count"] or 0),
+                    int(r["start_ts"] or 0),
+                    int(r["end_ts"] or 0),
+                )
+            )
+
+    def reinforce_qlearning(self):
+        self.conn.execute("DELETE FROM replay_qlearning")
+        rows = self.conn.execute(
+            "SELECT canonical_video_id, COUNT(*) AS c,"
+            " SUM(CASE WHEN relative_second=0 THEN 1 ELSE 0 END) AS zeros,"
+            " SUM(CASE WHEN raw_timestamp<1000000000 THEN 1 ELSE 0 END) AS rel_like,"
+            " COUNT(DISTINCT author) AS uniq_auth"
+            " FROM normalized_replay_messages GROUP BY canonical_video_id"
+        ).fetchall()
+        for r in rows:
+            total = max(1, int(r["c"] or 0))
+            zero_ratio = float(r["zeros"] or 0) / total
+            rel_ratio = float(r["rel_like"] or 0) / total
+            author_density = float(r["uniq_auth"] or 0) / total
+            gap_pattern = "steady" if zero_ratio < 0.30 else "spiky"
+            dup_density = "highdup" if author_density < 0.20 else "mixed"
+            jump = "relative" if rel_ratio > 0.50 else "epoch"
+            state = f"{(r['canonical_video_id'] or '')[:12]}|{gap_pattern}|{dup_density}|{jump}"
+            if zero_ratio > 0.70:
+                action, reward = "SHIFT_FORWARD", -0.20
+            elif rel_ratio > 0.80:
+                action, reward = "MERGE_WINDOW", 0.35
+            else:
+                action, reward = "KEEP", 0.80
+            self.conn.execute(
+                "INSERT OR REPLACE INTO replay_qlearning(state_key, best_action, q_value, visits, updated_at)"
+                " VALUES (?, ?, ?, 1, strftime('%s','now'))",
+                (state, action, reward)
+            )
+
 def upsert_message(msg: dict):
     sql = ("INSERT OR IGNORE INTO messages"
            "(id,video_id,title,video_date,author,author_cid,message,timestamp,"
@@ -5230,7 +5436,7 @@ function loadReplayWindows(force){
     _replayFlagCache = {};
   }
   status('Sohbet pencereleri yükleniyor...');
-  $.get('/api/replay/windows',{limit:120},function(d){
+  $.get('/api/replay/windows',{limit:120, force:(force?1:0)},function(d){
     const rows = d.windows || [];
     _replayWindowsCache = rows.filter(w => !_isReplayWindowHidden(w));
     _renderReplayWindows(_replayWindowsCache);
@@ -5289,8 +5495,8 @@ function _renderReplayWindows(windows){
           onclick="replayWindowRecalc(${i},event)"
           title="Bu sütun için koşullu hesaplama">🧮 Hesapla</button>
         <button class="btn ghost" style="font-size:10px;padding:2px 7px;margin-left:4px;background:linear-gradient(135deg,#5d3fd3,#9b59b6);color:#fff;border:none"
-          onclick="replayWindowOfflineReload(${i},event)"
-          title="NLP veritabanından T4LaZOUaN04 eşleşmesi bulunursa internetsiz yeniden hesapla">🟣 NLP DB</button>
+          onclick="replayWindowNormalize(${i},event)"
+          title="Replay akışını normalize eder, pencere sıralamasını onarır">🟣 NLP DB</button>
       </div>
     </div>`;
   });
@@ -5408,6 +5614,28 @@ function replayWindowOfflineReload(idx, evt){
     setTimeout(function(){ openReplayWindow(idx); }, 550);
   }).fail(function(xhr){
     const err = (xhr.responseJSON||{}).error || 'Offline yeniden hesaplama API hatası';
+    status('❌ ' + err, 5000);
+  });
+}
+
+function replayWindowNormalize(idx, evt){
+  if(evt){ evt.stopPropagation(); evt.preventDefault(); }
+  status('🧠 ReplayFlowNormalizer çalıştırılıyor...');
+  $.post('/api/replay/window/normalize',{}, function(d){
+    if(!d.success){
+      status('❌ Normalize başarısız: ' + (d.error || 'bilinmeyen hata'), 5000);
+      return;
+    }
+    _replayWindowsCache = null;
+    _replayMsgCache = {};
+    _replayFlagCache = {};
+    status('✅ Normalize DB hazır. Sohbet pencereleri yenileniyor...', 3500);
+    loadReplayWindows(true);
+    setTimeout(function(){
+      if(typeof idx === 'number') openReplayWindow(idx);
+    }, 650);
+  }).fail(function(xhr){
+    const err = (xhr.responseJSON||{}).error || 'Normalize API hatası';
     status('❌ ' + err, 5000);
   });
 }
@@ -6060,8 +6288,8 @@ socket.on('nlp_supplement_done', d=>{
   $('#nlp-supp-status').html(statusTxt);
   $('#nlp-status').html(statusTxt);
   if(_replaySuppAutoContext){
-    status('🔄 Takviye sonrası sohbet pencereleri güncelleniyor...', 3500);
-    loadReplayWindows(true);
+    status('🔄 Takviye sonrası replay akışı normalize ediliyor...', 3500);
+    replayWindowNormalize();
     _replaySuppAutoContext = null;
   }
   loadDash();
@@ -7124,18 +7352,26 @@ def create_app():
     @app.route("/api/replay/windows")
     def api_replay_windows():
         lim = max(10, min(300, int(request.args.get("limit", 120))))
-        rows = db_exec(
-            "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
-            " MAX(title) AS title, COUNT(*) AS message_count,"
-            " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
-            " FROM messages WHERE deleted=0"
-            " GROUP BY COALESCE(video_date,''), COALESCE(video_id,'')"
-            " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
-            " LIMIT ?",
-            (lim,), fetch="all"
-        ) or []
+        force = int(request.args.get("force", "0") or 0) == 1
+        with _get_conn() as c:
+            normalizer = ReplayFlowNormalizer(c)
+            normalizer.create_tables()
+            cnt_row = c.execute("SELECT COUNT(*) AS c FROM replay_windows_index").fetchone()
+            existing = int(cnt_row["c"]) if cnt_row else 0
+            if force or existing == 0:
+                normalizer.rebuild()
+            rows = c.execute(
+                "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
+                " COALESCE(title,'') AS title, COALESCE(msg_count,0) AS message_count,"
+                " COALESCE(start_ts,0) AS min_ts, COALESCE(end_ts,0) AS max_ts"
+                " FROM replay_windows_index"
+                " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, start_ts DESC"
+                " LIMIT ?",
+                (lim,)
+            ).fetchall()
         out = []
         for r in rows:
+            r = dict(r)
             video_date = (r.get("video_date") or "").strip()
             if (not video_date) and int(r.get("max_ts") or 0) > 0:
                 video_date = datetime.utcfromtimestamp(int(r["max_ts"])).strftime("%Y%m%d")
@@ -7154,24 +7390,47 @@ def create_app():
         vid = (request.args.get("video_id", "") or "").strip()
         win_date = (request.args.get("window_date", "") or "").strip()
         lim = max(50, min(5000, int(request.args.get("limit", 5000))))
-        wh = ["m.deleted=0"]
+        wh = ["n.canonical_video_id<>''"]
         prms: List = []
         if vid:
-            wh.append("m.video_id=?")
+            wh.append("(n.video_id=? OR n.canonical_video_id=?)")
+            prms.append(vid)
             prms.append(vid)
         if win_date:
-            wh.append("COALESCE(m.video_date,'')=?")
+            wh.append("COALESCE(n.video_date,'')=?")
             prms.append(win_date)
         where_sql = " AND ".join(wh)
-        rows = db_exec(
-            "SELECT m.*, up.threat_level, up.threat_score"
-            " FROM messages m LEFT JOIN user_profiles up ON m.author=up.author"
-            f" WHERE {where_sql}"
-            " ORDER BY m.timestamp ASC LIMIT ?",
-            tuple(prms) + (lim,), fetch="all"
-        ) or []
+        with _get_conn() as c:
+            normalizer = ReplayFlowNormalizer(c)
+            normalizer.create_tables()
+            cnt_row = c.execute("SELECT COUNT(*) AS c FROM normalized_replay_messages").fetchone()
+            existing = int(cnt_row["c"]) if cnt_row else 0
+            if existing == 0:
+                normalizer.rebuild()
+            rows = c.execute(
+                "SELECT n.source_msg_id AS id, n.video_id, n.title, n.video_date, n.author,"
+                " n.message, n.normalized_timestamp AS timestamp,"
+                " n.raw_timestamp, n.relative_second, n.replay_order, n.source_type,"
+                " up.threat_level, up.threat_score"
+                " FROM normalized_replay_messages n"
+                " LEFT JOIN user_profiles up ON n.author=up.author"
+                f" WHERE {where_sql}"
+                " ORDER BY n.replay_order ASC LIMIT ?",
+                tuple(prms) + (lim,)
+            ).fetchall()
+        rows = [dict(r) for r in rows]
         out = _attach_watch_links(rows)
         return jsonify({"messages": out, "total": len(out)})
+
+    @app.route("/api/replay/window/normalize", methods=["POST"])
+    def api_replay_window_normalize():
+        try:
+            with _get_conn() as c:
+                ReplayFlowNormalizer(c).rebuild()
+            return jsonify({"success": True, "normalized": True})
+        except Exception as e:
+            log.exception("Replay normalize hatası")
+            return jsonify({"success": False, "error": str(e)}), 500
 
     @app.route("/api/replay/window/offline-recalc", methods=["POST"])
     def api_replay_window_offline_recalc():
