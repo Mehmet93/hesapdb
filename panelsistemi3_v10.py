@@ -5249,6 +5249,9 @@ function _renderReplayWindows(windows){
         <button class="btn ghost" style="font-size:10px;padding:2px 7px"
           onclick="replayWindowRecalc(${i},event)"
           title="Bu sütun için koşullu hesaplama">🧮 Hesapla</button>
+        <button class="btn ghost" style="font-size:10px;padding:2px 7px;margin-left:4px;background:linear-gradient(135deg,#5d3fd3,#9b59b6);color:#fff;border:none"
+          onclick="replayWindowOfflineReload(${i},event)"
+          title="NLP veritabanından T4LaZOUaN04 eşleşmesi bulunursa internetsiz yeniden hesapla">🟣 NLP DB</button>
       </div>
     </div>`;
   });
@@ -5301,6 +5304,40 @@ function replayWindowRecalc(idx, evt){
     handleMessages(_replayMsgCache[cacheKey]);
   }).fail(function(){
     status('❌ Mesaj sayısı kontrolü başarısız oldu', 4000);
+  });
+}
+
+function replayWindowOfflineReload(idx, evt){
+  if(evt){ evt.stopPropagation(); evt.preventDefault(); }
+  const win = replayState.windows[idx];
+  if(!win) return;
+  const targetVid = (win.video_id || '').trim();
+  const targetDate = (win.window_date || '').trim();
+  if(!targetVid){
+    status('❌ Hedef sütunda video_id bulunamadı', 4000);
+    return;
+  }
+  status('🟣 NLP veritabanı taranıyor (internetsiz)...');
+  $.post('/api/replay/window/offline-recalc',{
+    target_video_id: targetVid,
+    target_window_date: targetDate,
+    source_video_id: 'T4LaZOUaN04'
+  }, function(d){
+    if(!d.success){
+      status('❌ ' + (d.error || 'Offline yeniden hesaplama başarısız'), 5000);
+      return;
+    }
+    const moved = Number(d.messages_copied || 0);
+    const src = d.source_video_id || 'T4LaZOUaN04';
+    status(`✅ ${src} verisi taşındı (${moved} mesaj). Pencereler yenileniyor...`, 5000);
+    _replayWindowsCache = null;
+    _replayMsgCache = {};
+    _replayFlagCache = {};
+    loadReplayWindows(true);
+    setTimeout(function(){ openReplayWindow(idx); }, 550);
+  }).fail(function(xhr){
+    const err = (xhr.responseJSON||{}).error || 'Offline yeniden hesaplama API hatası';
+    status('❌ ' + err, 5000);
   });
 }
 
@@ -7065,6 +7102,98 @@ def create_app():
         out = _attach_watch_links(rows)
         return jsonify({"messages": out, "total": len(out)})
 
+    @app.route("/api/replay/window/offline-recalc", methods=["POST"])
+    def api_replay_window_offline_recalc():
+        """
+        İnternete bağlanmadan, daha önce NLP replay-chat analizi ile DB'ye düşen
+        bir kaynak videonun (varsayılan: T4LaZOUaN04) mesajlarını hedef sütuna kopyalar.
+        """
+        target_vid = (request.form.get("target_video_id", "") or "").strip()
+        target_date = (request.form.get("target_window_date", "") or "").strip()
+        source_vid = (request.form.get("source_video_id", "T4LaZOUaN04") or "").strip()
+
+        if not target_vid:
+            return jsonify({"success": False, "error": "target_video_id zorunlu"})
+        if not source_vid:
+            source_vid = "T4LaZOUaN04"
+
+        src_rows = db_exec(
+            "SELECT id, title, author, author_cid, message, timestamp, lang, script_type, video_date"
+            " FROM messages"
+            " WHERE deleted=0 AND video_id=? AND source_type='replay_chat'"
+            " ORDER BY timestamp ASC",
+            (source_vid,), fetch="all"
+        ) or []
+        if not src_rows:
+            return jsonify({
+                "success": False,
+                "error": f"NLP replay veritabanında {source_vid} için mesaj bulunamadı"
+            })
+
+        delete_date = target_date
+        if not delete_date:
+            row = db_exec(
+                "SELECT COALESCE(video_date,'') AS video_date FROM messages"
+                " WHERE deleted=0 AND video_id=? ORDER BY timestamp DESC LIMIT 1",
+                (target_vid,), fetch="one"
+            ) or {}
+            delete_date = (row.get("video_date") or "").strip()
+
+        if delete_date:
+            db_exec(
+                "DELETE FROM messages WHERE video_id=? AND COALESCE(video_date,'')=? AND source_type='replay_chat_offline_clone'",
+                (target_vid, delete_date)
+            )
+        else:
+            db_exec(
+                "DELETE FROM messages WHERE video_id=? AND source_type='replay_chat_offline_clone'",
+                (target_vid,)
+            )
+
+        copied = 0
+        target_title = ""
+        existing = db_exec(
+            "SELECT COALESCE(title,'') AS title FROM messages WHERE video_id=? AND deleted=0"
+            " ORDER BY timestamp DESC LIMIT 1",
+            (target_vid,), fetch="one"
+        ) or {}
+        target_title = (existing.get("title") or "").strip()
+
+        for r in src_rows:
+            author = (r.get("author") or "").strip()
+            msg = (r.get("message") or "").strip()
+            ts = int(r.get("timestamp") or 0)
+            if not author or not msg:
+                continue
+            rid = msg_id(target_vid, author, ts, msg)
+            db_exec(
+                "INSERT OR IGNORE INTO messages"
+                " (id, video_id, title, video_date, author, author_cid, message, timestamp,"
+                "  lang, script_type, source_type, is_live, deleted)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'replay_chat_offline_clone', 0, 0)",
+                (
+                    rid,
+                    target_vid,
+                    target_title or (r.get("title") or ""),
+                    target_date or (r.get("video_date") or ""),
+                    author,
+                    (r.get("author_cid") or ""),
+                    msg,
+                    ts,
+                    (r.get("lang") or ""),
+                    (r.get("script_type") or ""),
+                )
+            )
+            copied += 1
+
+        return jsonify({
+            "success": True,
+            "target_video_id": target_vid,
+            "target_window_date": target_date,
+            "source_video_id": source_vid,
+            "messages_copied": copied
+        })
+
     # ── Analysis ──────────────────────────────────────────────────────────────
     @app.route("/api/analyze/user", methods=["POST"])
     def api_analyze_user():
@@ -7644,4 +7773,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
