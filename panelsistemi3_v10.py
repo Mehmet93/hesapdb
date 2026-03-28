@@ -5291,9 +5291,6 @@ function _renderReplayWindows(windows){
         <button class="btn ghost" style="font-size:10px;padding:2px 7px;margin-left:4px;background:linear-gradient(135deg,#5d3fd3,#9b59b6);color:#fff;border:none"
           onclick="replayWindowOfflineReload(${i},event)"
           title="NLP veritabanından T4LaZOUaN04 eşleşmesi bulunursa internetsiz yeniden hesapla">🟣 NLP DB</button>
-        <button class="btn ghost" style="font-size:10px;padding:2px 7px;margin-left:4px;background:#3b3f4c;color:#fff;border:none"
-          onclick="hideReplayWindow(${i},event)"
-          title="Bu sütunu sadece Sohbet Akışı listesinden kaldırır (veritabanına dokunmaz)">🧹 Kaldır</button>
       </div>
     </div>`;
   });
