@@ -2619,17 +2619,32 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
     vid_date  = vid_meta.get("video_date", "")
     vid_title = title or vid_meta.get("title", "") or video_id
 
-    # 0) Doğrudan video_id eşleşmesi varsa her zaman slotu yakala.
-    # Bu durumda "Eşleşen slot bulunamadı" fallback'ına düşmemeli.
+    # 0) scraped_videos snapshot'u: doğrudan eşleşme + boş slot sayısı
+    rows = db_exec(
+        "SELECT video_id, title, video_date, chat_count, scraped_at"
+        " FROM scraped_videos"
+        " ORDER BY scraped_at ASC",
+        fetch="all"
+    ) or []
+    empty_count = sum(1 for r in rows if int(r.get("chat_count") or 0) == 0)
+
+    matched_slot = None
+    match_delta_days = 0
+    match_score = 1.0
+
+    # 1) Doğrudan video_id eşleşmesi varsa her zaman slotu yakala.
+    # Bu durumda "Eşleşen slot bulunamadı" fallback'ına düşmez.
     for slot in rows:
         sid = (slot.get("video_id") or "").strip()
         if sid and sid == video_id:
-            return dict(slot), 0, 1.0, empty_count
+            matched_slot = dict(slot)
+            break
 
-    # ── 2. Slot eşleştirme (tarih + başlık, boş slot öncelikli) ─────────────
-    matched_slot, match_delta_days, match_score, empty_count = _find_best_supplement_slot(
-        video_id=video_id, vid_date=vid_date, vid_title=vid_title
-    )
+    # 2) Doğrudan eşleşme yoksa: tarih + başlık + boş slot önceliğiyle eşleştir
+    if matched_slot is None:
+        matched_slot, match_delta_days, match_score, empty_count = _find_best_supplement_slot(
+            video_id=video_id, vid_date=vid_date, vid_title=vid_title
+        )
     log.info("Boş replay-chat slotu sayısı: %d", empty_count)
 
     if matched_slot:
@@ -4524,9 +4539,32 @@ let _replayWindowsCache = null;   // windows listesi
 let _replayMsgCache = {};         // video_id+date → messages[]
 let _replayFlagCache = {};        // video_id+date → flagged_users[]
 let _replaySuppAutoContext = null; // otomatik takviye bağlamı
+let _hiddenReplayWindowKeys = null; // sadece UI'dan gizlenen sütunlar (DB etkilenmez)
 const CLR = {G:'#2ECC71',Y:'#F1C40F',O:'#E67E22',R:'#E74C3C',C:'#8B0000',B:'#3498DB',P:'#9B59B6'};
 const LVL2CLS = {GREEN:'G',YELLOW:'Y',ORANGE:'O',RED:'R',CRIMSON:'C',BLUE:'B',PURPLE:'P'};
 let msgTimer = null, gsTimer = null;
+
+const _REPLAY_HIDDEN_STORAGE_KEY = 'ytg_hidden_replay_windows_v1';
+function _loadHiddenReplayWindowKeys(){
+  if(_hiddenReplayWindowKeys !== null) return _hiddenReplayWindowKeys;
+  try{
+    const raw = localStorage.getItem(_REPLAY_HIDDEN_STORAGE_KEY) || '[]';
+    const arr = JSON.parse(raw);
+    _hiddenReplayWindowKeys = new Set(Array.isArray(arr) ? arr.map(String) : []);
+  }catch(_){
+    _hiddenReplayWindowKeys = new Set();
+  }
+  return _hiddenReplayWindowKeys;
+}
+function _saveHiddenReplayWindowKeys(){
+  try{
+    const keys = Array.from(_loadHiddenReplayWindowKeys().values());
+    localStorage.setItem(_REPLAY_HIDDEN_STORAGE_KEY, JSON.stringify(keys));
+  }catch(_){}
+}
+function _isReplayWindowHidden(win){
+  return _loadHiddenReplayWindowKeys().has(_replayCacheKey(win));
+}
 
 function status(msg,ms=0){ $('#status').text(msg); if(ms) setTimeout(()=>$('#status').text(''),ms); }
 function nav(name,el){
@@ -5193,7 +5231,8 @@ function loadReplayWindows(force){
   }
   status('Sohbet pencereleri yükleniyor...');
   $.get('/api/replay/windows',{limit:120},function(d){
-    _replayWindowsCache = d.windows || [];
+    const rows = d.windows || [];
+    _replayWindowsCache = rows.filter(w => !_isReplayWindowHidden(w));
     _renderReplayWindows(_replayWindowsCache);
     if(force && _replayWindowsCache.length){
       // force=true → tüm başlıklar için fişlenen kullanıcı hesaplamasını arka planda çalıştır
@@ -5245,14 +5284,52 @@ function _renderReplayWindows(windows){
         <span style="font-size:10px;color:var(--tx2)">${w.video_id||'-'}</span>
         <span style="font-size:10px;color:var(--tx2)">${dur}</span>
       </div>
-      <div style="margin-top:6px;display:flex;justify-content:flex-end">
+      <div style="margin-top:6px;display:flex;justify-content:flex-end;flex-wrap:wrap;gap:4px">
         <button class="btn ghost" style="font-size:10px;padding:2px 7px"
           onclick="replayWindowRecalc(${i},event)"
           title="Bu sütun için koşullu hesaplama">🧮 Hesapla</button>
+        <button class="btn ghost" style="font-size:10px;padding:2px 7px;margin-left:4px;background:linear-gradient(135deg,#5d3fd3,#9b59b6);color:#fff;border:none"
+          onclick="replayWindowOfflineReload(${i},event)"
+          title="NLP replay veritabanından en uygun eşleşmeyi bulup internetsiz yeniden hesapla">🟣 NLP DB</button>
+        <button class="btn ghost" style="font-size:10px;padding:2px 7px;margin-left:4px;background:linear-gradient(135deg,#2f3640,#57606f);color:#fff;border:1px solid #7f8fa6"
+          onclick="hideReplayWindow(${i},event)"
+          title="Bu sütunu sadece Sohbet Akışı listesinden kaldırır (veritabanına dokunmaz)">🧹 Kaldır</button>
       </div>
     </div>`;
   });
   $('#replay-window-list').html(h || '<p style="color:var(--tx2)">Sohbet penceresi bulunamadı</p>');
+}
+
+function hideReplayWindow(idx, evt){
+  if(evt){ evt.stopPropagation(); evt.preventDefault(); }
+  const win = replayState.windows[idx];
+  if(!win) return;
+  const key = _replayCacheKey(win);
+  if(!key){
+    status('❌ Sütun anahtarı oluşturulamadı', 3500);
+    return;
+  }
+  _loadHiddenReplayWindowKeys().add(key);
+  _saveHiddenReplayWindowKeys();
+
+  const before = replayState.windows.length;
+  const next = (replayState.windows || []).filter(w => _replayCacheKey(w) !== key);
+  _replayWindowsCache = next;
+  replayState.windows = next;
+
+  if(replayState.active && _replayCacheKey(replayState.active) === key){
+    pauseReplay();
+    replayState.active = null;
+    replayState.messages = [];
+    replayState.idx = 0;
+    replayState.lastTs = 0;
+    $('#replay-stream').html('<p style="color:var(--tx2)">Seçili sütun listeden kaldırıldı.</p>');
+    $('#replay-meta').text('Sütun kaldırıldı');
+    $('#replay-flagged-panel').html('<p style="color:var(--tx2);font-size:11px">Soldan bir sohbet penceresi seçin.</p>');
+  }
+
+  _renderReplayWindows(next);
+  status(`✅ Sütun kaldırıldı (${before} → ${next.length}). Kullanıcı/BAN verisi etkilenmedi.`, 4500);
 }
 
 function replayWindowRecalc(idx, evt){
@@ -5301,6 +5378,41 @@ function replayWindowRecalc(idx, evt){
     handleMessages(_replayMsgCache[cacheKey]);
   }).fail(function(){
     status('❌ Mesaj sayısı kontrolü başarısız oldu', 4000);
+  });
+}
+
+function replayWindowOfflineReload(idx, evt){
+  if(evt){ evt.stopPropagation(); evt.preventDefault(); }
+  const win = replayState.windows[idx];
+  if(!win) return;
+  const targetVid = (win.video_id || '').trim();
+  const targetDate = (win.window_date || '').trim();
+  const targetTitle = (win.title || '').trim();
+  if(!targetVid){
+    status('❌ Hedef sütunda video_id bulunamadı', 4000);
+    return;
+  }
+  status('🟣 NLP veritabanı taranıyor (internetsiz)...');
+  $.post('/api/replay/window/offline-recalc',{
+    target_video_id: targetVid,
+    target_window_date: targetDate,
+    target_title: targetTitle
+  }, function(d){
+    if(!d.success){
+      status('❌ ' + (d.error || 'Offline yeniden hesaplama başarısız'), 5000);
+      return;
+    }
+    const moved = Number(d.messages_copied || 0);
+    const src = d.source_video_id || '-';
+    status(`✅ ${src} verisi taşındı (${moved} mesaj). Pencereler yenileniyor...`, 5000);
+    _replayWindowsCache = null;
+    _replayMsgCache = {};
+    _replayFlagCache = {};
+    loadReplayWindows(true);
+    setTimeout(function(){ openReplayWindow(idx); }, 550);
+  }).fail(function(xhr){
+    const err = (xhr.responseJSON||{}).error || 'Offline yeniden hesaplama API hatası';
+    status('❌ ' + err, 5000);
   });
 }
 
@@ -7065,6 +7177,172 @@ def create_app():
         out = _attach_watch_links(rows)
         return jsonify({"messages": out, "total": len(out)})
 
+    @app.route("/api/replay/window/offline-recalc", methods=["POST"])
+    def api_replay_window_offline_recalc():
+        """
+        İnternete bağlanmadan, NLP replay-chat veritabanındaki en uygun kaynak
+        video/sütunu bularak mesajları hedef sütuna kopyalar.
+        """
+        target_vid = (request.form.get("target_video_id", "") or "").strip()
+        target_date = (request.form.get("target_window_date", "") or "").strip()
+        target_title = (request.form.get("target_title", "") or "").strip()
+        preferred_source_vid = (request.form.get("source_video_id", "") or "").strip()
+
+        if not target_vid:
+            return jsonify({"success": False, "error": "target_video_id zorunlu"})
+
+        def _pick_source_video() -> Tuple[str, str]:
+            """
+            Kaynak video seçimi (hard-code yok):
+              1) İstekte source_video_id verildiyse ve DB'de replay_chat'i varsa onu kullan.
+              2) Hedef video_id için replay_chat varsa doğrudan onu kullan.
+              3) Aksi halde replay_chat pencereleri arasında tarih + başlık skoruyla en uygun adayı seç.
+            """
+            # 1) Tercihli kaynak (opsiyonel)
+            if preferred_source_vid:
+                chk = db_exec(
+                    "SELECT 1 FROM messages WHERE deleted=0 AND source_type='replay_chat' AND video_id=? LIMIT 1",
+                    (preferred_source_vid,), fetch="one"
+                )
+                if chk:
+                    return preferred_source_vid, "preferred_source"
+
+            # 2) Hedef video'da replay_chat var mı?
+            chk_self = db_exec(
+                "SELECT 1 FROM messages WHERE deleted=0 AND source_type='replay_chat' AND video_id=? LIMIT 1",
+                (target_vid,), fetch="one"
+            )
+            if chk_self:
+                return target_vid, "same_video"
+
+            # 3) Tüm replay_chat pencerelerinden en iyi adayı seç
+            candidates = db_exec(
+                "SELECT COALESCE(video_id,'') AS video_id, COALESCE(video_date,'') AS video_date,"
+                " MAX(COALESCE(title,'')) AS title, COUNT(*) AS msg_count"
+                " FROM messages"
+                " WHERE deleted=0 AND source_type='replay_chat' AND COALESCE(video_id,'')<>''"
+                " GROUP BY COALESCE(video_id,''), COALESCE(video_date,'')"
+                " ORDER BY msg_count DESC",
+                fetch="all"
+            ) or []
+            if not candidates:
+                return "", "no_candidates"
+
+            best_vid = ""
+            best_score = -1.0
+            best_reason = "fallback_count"
+            t_date = (target_date or "").strip()
+            t_title = (target_title or "").strip()
+            for c in candidates:
+                c_vid = (c.get("video_id") or "").strip()
+                if not c_vid:
+                    continue
+                d_score = 0.0
+                c_date = (c.get("video_date") or "").strip()
+                if t_date and c_date and c_date[:8] == t_date[:8]:
+                    d_score = 1.0
+                elif t_date and c_date:
+                    try:
+                        d1 = datetime.strptime(t_date[:8], "%Y%m%d")
+                        d2 = datetime.strptime(c_date[:8], "%Y%m%d")
+                        delta = abs((d1 - d2).days)
+                        d_score = max(0.0, 1.0 - (delta / 30.0))
+                    except Exception:
+                        d_score = 0.0
+                t_score = _title_similarity(t_title, (c.get("title") or ""))
+                cnt_score = min(1.0, (float(c.get("msg_count") or 0) / 500.0))
+                score = (0.55 * d_score) + (0.35 * t_score) + (0.10 * cnt_score)
+                if score > best_score:
+                    best_score = score
+                    best_vid = c_vid
+                    best_reason = "date_title_count"
+            return best_vid, best_reason
+
+        source_vid, source_reason = _pick_source_video()
+        if not source_vid:
+            return jsonify({
+                "success": False,
+                "error": "NLP replay veritabanında uygun kaynak sütun bulunamadı"
+            })
+
+        src_rows = db_exec(
+            "SELECT id, title, author, author_cid, message, timestamp, lang, script_type, video_date"
+            " FROM messages"
+            " WHERE deleted=0 AND video_id=? AND source_type IN ('replay_chat','replay_chat_offline_clone')"
+            " ORDER BY timestamp ASC",
+            (source_vid,), fetch="all"
+        ) or []
+        if not src_rows:
+            return jsonify({
+                "success": False,
+                "error": f"NLP replay veritabanında {source_vid} için chat-replay mesajı bulunamadı"
+            })
+
+        delete_date = target_date
+        if not delete_date:
+            row = db_exec(
+                "SELECT COALESCE(video_date,'') AS video_date FROM messages"
+                " WHERE deleted=0 AND video_id=? ORDER BY timestamp DESC LIMIT 1",
+                (target_vid,), fetch="one"
+            ) or {}
+            delete_date = (row.get("video_date") or "").strip()
+
+        if delete_date:
+            db_exec(
+                "DELETE FROM messages WHERE video_id=? AND COALESCE(video_date,'')=? AND source_type='replay_chat_offline_clone'",
+                (target_vid, delete_date)
+            )
+        else:
+            db_exec(
+                "DELETE FROM messages WHERE video_id=? AND source_type='replay_chat_offline_clone'",
+                (target_vid,)
+            )
+
+        copied = 0
+        target_title = ""
+        existing = db_exec(
+            "SELECT COALESCE(title,'') AS title FROM messages WHERE video_id=? AND deleted=0"
+            " ORDER BY timestamp DESC LIMIT 1",
+            (target_vid,), fetch="one"
+        ) or {}
+        target_title = (existing.get("title") or "").strip()
+
+        for r in src_rows:
+            author = (r.get("author") or "").strip()
+            msg = (r.get("message") or "").strip()
+            ts = int(r.get("timestamp") or 0)
+            if not author or not msg:
+                continue
+            rid = msg_id(target_vid, author, ts, msg)
+            db_exec(
+                "INSERT OR IGNORE INTO messages"
+                " (id, video_id, title, video_date, author, author_cid, message, timestamp,"
+                "  lang, script_type, source_type, is_live, deleted)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'replay_chat_offline_clone', 0, 0)",
+                (
+                    rid,
+                    target_vid,
+                    target_title or (r.get("title") or ""),
+                    target_date or (r.get("video_date") or ""),
+                    author,
+                    (r.get("author_cid") or ""),
+                    msg,
+                    ts,
+                    (r.get("lang") or ""),
+                    (r.get("script_type") or ""),
+                )
+            )
+            copied += 1
+
+        return jsonify({
+            "success": True,
+            "target_video_id": target_vid,
+            "target_window_date": target_date,
+            "source_video_id": source_vid,
+            "source_reason": source_reason,
+            "messages_copied": copied
+        })
+
     # ── Analysis ──────────────────────────────────────────────────────────────
     @app.route("/api/analyze/user", methods=["POST"])
     def api_analyze_user():
@@ -7644,4 +7922,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
