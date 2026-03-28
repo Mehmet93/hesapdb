@@ -4539,9 +4539,32 @@ let _replayWindowsCache = null;   // windows listesi
 let _replayMsgCache = {};         // video_id+date → messages[]
 let _replayFlagCache = {};        // video_id+date → flagged_users[]
 let _replaySuppAutoContext = null; // otomatik takviye bağlamı
+let _hiddenReplayWindowKeys = null; // sadece UI'dan gizlenen sütunlar (DB etkilenmez)
 const CLR = {G:'#2ECC71',Y:'#F1C40F',O:'#E67E22',R:'#E74C3C',C:'#8B0000',B:'#3498DB',P:'#9B59B6'};
 const LVL2CLS = {GREEN:'G',YELLOW:'Y',ORANGE:'O',RED:'R',CRIMSON:'C',BLUE:'B',PURPLE:'P'};
 let msgTimer = null, gsTimer = null;
+
+const _REPLAY_HIDDEN_STORAGE_KEY = 'ytg_hidden_replay_windows_v1';
+function _loadHiddenReplayWindowKeys(){
+  if(_hiddenReplayWindowKeys !== null) return _hiddenReplayWindowKeys;
+  try{
+    const raw = localStorage.getItem(_REPLAY_HIDDEN_STORAGE_KEY) || '[]';
+    const arr = JSON.parse(raw);
+    _hiddenReplayWindowKeys = new Set(Array.isArray(arr) ? arr.map(String) : []);
+  }catch(_){
+    _hiddenReplayWindowKeys = new Set();
+  }
+  return _hiddenReplayWindowKeys;
+}
+function _saveHiddenReplayWindowKeys(){
+  try{
+    const keys = Array.from(_loadHiddenReplayWindowKeys().values());
+    localStorage.setItem(_REPLAY_HIDDEN_STORAGE_KEY, JSON.stringify(keys));
+  }catch(_){}
+}
+function _isReplayWindowHidden(win){
+  return _loadHiddenReplayWindowKeys().has(_replayCacheKey(win));
+}
 
 function status(msg,ms=0){ $('#status').text(msg); if(ms) setTimeout(()=>$('#status').text(''),ms); }
 function nav(name,el){
@@ -5208,7 +5231,8 @@ function loadReplayWindows(force){
   }
   status('Sohbet pencereleri yükleniyor...');
   $.get('/api/replay/windows',{limit:120},function(d){
-    _replayWindowsCache = d.windows || [];
+    const rows = d.windows || [];
+    _replayWindowsCache = rows.filter(w => !_isReplayWindowHidden(w));
     _renderReplayWindows(_replayWindowsCache);
     if(force && _replayWindowsCache.length){
       // force=true → tüm başlıklar için fişlenen kullanıcı hesaplamasını arka planda çalıştır
@@ -5271,6 +5295,38 @@ function _renderReplayWindows(windows){
     </div>`;
   });
   $('#replay-window-list').html(h || '<p style="color:var(--tx2)">Sohbet penceresi bulunamadı</p>');
+}
+
+function hideReplayWindow(idx, evt){
+  if(evt){ evt.stopPropagation(); evt.preventDefault(); }
+  const win = replayState.windows[idx];
+  if(!win) return;
+  const key = _replayCacheKey(win);
+  if(!key){
+    status('❌ Sütun anahtarı oluşturulamadı', 3500);
+    return;
+  }
+  _loadHiddenReplayWindowKeys().add(key);
+  _saveHiddenReplayWindowKeys();
+
+  const before = replayState.windows.length;
+  const next = (replayState.windows || []).filter(w => _replayCacheKey(w) !== key);
+  _replayWindowsCache = next;
+  replayState.windows = next;
+
+  if(replayState.active && _replayCacheKey(replayState.active) === key){
+    pauseReplay();
+    replayState.active = null;
+    replayState.messages = [];
+    replayState.idx = 0;
+    replayState.lastTs = 0;
+    $('#replay-stream').html('<p style="color:var(--tx2)">Seçili sütun listeden kaldırıldı.</p>');
+    $('#replay-meta').text('Sütun kaldırıldı');
+    $('#replay-flagged-panel').html('<p style="color:var(--tx2);font-size:11px">Soldan bir sohbet penceresi seçin.</p>');
+  }
+
+  _renderReplayWindows(next);
+  status(`✅ Sütun kaldırıldı (${before} → ${next.length}). Kullanıcı/BAN verisi etkilenmedi.`, 4500);
 }
 
 function replayWindowRecalc(idx, evt){
