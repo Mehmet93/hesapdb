@@ -5284,7 +5284,7 @@ function _renderReplayWindows(windows){
         <span style="font-size:10px;color:var(--tx2)">${w.video_id||'-'}</span>
         <span style="font-size:10px;color:var(--tx2)">${dur}</span>
       </div>
-      <div style="margin-top:6px;display:flex;justify-content:flex-end">
+      <div style="margin-top:6px;display:flex;justify-content:flex-end;flex-wrap:wrap;gap:4px">
         <button class="btn ghost" style="font-size:10px;padding:2px 7px"
           onclick="replayWindowRecalc(${i},event)"
           title="Bu sütun için koşullu hesaplama">🧮 Hesapla</button>
