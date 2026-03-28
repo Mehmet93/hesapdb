@@ -2619,17 +2619,32 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
     vid_date  = vid_meta.get("video_date", "")
     vid_title = title or vid_meta.get("title", "") or video_id
 
-    # 0) Doğrudan video_id eşleşmesi varsa her zaman slotu yakala.
-    # Bu durumda "Eşleşen slot bulunamadı" fallback'ına düşmemeli.
+    # 0) scraped_videos snapshot'u: doğrudan eşleşme + boş slot sayısı
+    rows = db_exec(
+        "SELECT video_id, title, video_date, chat_count, scraped_at"
+        " FROM scraped_videos"
+        " ORDER BY scraped_at ASC",
+        fetch="all"
+    ) or []
+    empty_count = sum(1 for r in rows if int(r.get("chat_count") or 0) == 0)
+
+    matched_slot = None
+    match_delta_days = 0
+    match_score = 1.0
+
+    # 1) Doğrudan video_id eşleşmesi varsa her zaman slotu yakala.
+    # Bu durumda "Eşleşen slot bulunamadı" fallback'ına düşmez.
     for slot in rows:
         sid = (slot.get("video_id") or "").strip()
         if sid and sid == video_id:
-            return dict(slot), 0, 1.0, empty_count
+            matched_slot = dict(slot)
+            break
 
-    # ── 2. Slot eşleştirme (tarih + başlık, boş slot öncelikli) ─────────────
-    matched_slot, match_delta_days, match_score, empty_count = _find_best_supplement_slot(
-        video_id=video_id, vid_date=vid_date, vid_title=vid_title
-    )
+    # 2) Doğrudan eşleşme yoksa: tarih + başlık + boş slot önceliğiyle eşleştir
+    if matched_slot is None:
+        matched_slot, match_delta_days, match_score, empty_count = _find_best_supplement_slot(
+            video_id=video_id, vid_date=vid_date, vid_title=vid_title
+        )
     log.info("Boş replay-chat slotu sayısı: %d", empty_count)
 
     if matched_slot:
