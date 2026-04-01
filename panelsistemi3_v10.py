@@ -1968,18 +1968,18 @@ def ytdlp_live_chat(video_id: str, title: str = "", video_date: str = "") -> Lis
         except: pass
 
     # Önce yorumlar klasöründe info.json varsa live_status kontrol et
-    # (ytdlp_comments zaten indirmiş olabilir → ağ/disk isteği yapmadan erken çık)
+    # (ytdlp_comments zaten indirmiş olabilir).
+    # ÖNEMLİ: Bazı VOD'larda live_status "not_live" görünse bile replay_chat
+    # altyazısı mevcut olabiliyor. Bu yüzden artık erken çıkış YOK; sadece log.
     _LIVE_STATUSES = ("was_live", "is_live", "post_live")
     comments_info = Path(CFG["data_dir"]) / "comments" / f"{video_id}.info.json"
     if comments_info.exists():
         try:
             _ci = json.load(open(comments_info, encoding="utf-8"))
             live_status = (_ci.get("live_status") or "").lower()
-            # Açık bir "canlı değil" işareti varsa yt-dlp'yi çalıştırma
             if live_status and not any(s in live_status for s in _LIVE_STATUSES):
-                log.info("  %s live_status='%s' → live chat yok, yt-dlp atlanıyor",
+                log.info("  %s live_status='%s' → yine de replay_chat denenecek",
                          video_id, live_status)
-                return []
         except Exception:
             pass  # info.json bozuksa devam et, yt-dlp denesin
 
