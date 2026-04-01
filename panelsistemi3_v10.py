@@ -1833,9 +1833,21 @@ def _estimate_watch_seconds(ts: int, video_date: str = "",
     if ts <= 0:
         return 0
 
-    # Öncelik 2 — replay/live chat için min_ts kullan (tahmini)
-    if min_ts and min_ts >= 1_000_000_000 and source_type in ("replay_chat", "live_chat", "live"):
-        return max(0, ts - int(min_ts))
+    # Öncelik 2 — replay/live/stream chat için min_ts kullan (tahmini)
+    # NOT: min_ts hem mutlak epoch saniyesi hem de relatif saniye olabilir.
+    # Bu yüzden epoch eşiği zorunluluğu kaldırıldı.
+    chat_sources = ("replay_chat", "live_chat", "live", "stream", "stream_chat")
+    if min_ts and source_type in chat_sources:
+        try:
+            min_ts_i = int(min_ts)
+        except Exception:
+            min_ts_i = 0
+        if min_ts_i > 0:
+            if ts >= min_ts_i:
+                return max(0, ts - min_ts_i)
+            # ts relatif ama min_ts daha büyük/bozuksa ts'yi doğrudan kabul et
+            if ts < 1_000_000_000:
+                return max(0, ts)
 
     # Öncelik 3 — zaten relatif saniye
     if ts < 1_000_000_000:
