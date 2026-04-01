@@ -2805,6 +2805,24 @@ def _extract_channel_id_from_text(text: str) -> str:
             return m.group(1)
     return ""
 
+def _normalize_channel_url_input(raw: str) -> str:
+    """
+    UI kanal girdisini normalize eder.
+      @TheWizardsWords -> https://www.youtube.com/@TheWizardsWords
+      youtube.com/...  -> https://youtube.com/...
+      boş              -> ""
+    """
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    if s.startswith("@"):
+        return f"https://www.youtube.com/{s}"
+    if "youtube.com/" in s or "youtu.be/" in s:
+        if not s.startswith(("http://", "https://")):
+            return "https://" + s
+        return s
+    return s
+
 def resolve_author_channel_id(driver, author: str, current_cid: str = "") -> str:
     cid = (current_cid or "").strip()
     if re.match(r"^UC[\w-]{20,}$", cid):
@@ -4532,6 +4550,12 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
 <div id="tab-nlp" class="tab">
   <div class="card">
     <h3>🤖 NLP Tabanlı Canlı Yayın Tekrar Sohbet Analizi</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <input class="inp" id="nlp-channel-handle"
+             placeholder="@TheWizardsWords (opsiyonel kanal adı)"
+             style="min-width:260px;flex:1">
+      <div style="font-size:11px;color:var(--tx2)">Boş bırakılırsa varsayılan kanal kullanılır.</div>
+    </div>
     <p style="font-size:11px;color:var(--tx2);margin-bottom:12px">
       Kanal: <b style="color:var(--acc)">@ShmirchikArt</b> · 2023–2026 · BART + Embedding + Kümeleme + Koordineli Saldırı Tespiti
     </p>
@@ -6015,11 +6039,13 @@ function pager(id,total,cur,fn){
 let nlpChart = null;
 
 function nlpChannelScan(){
-  if(!confirm('NLP tam kanal taraması başlatılsın?\n@ShmirchikArt · 2023-2026\nBu işlem uzun sürebilir.')) return;
+  const rawCh = ($('#nlp-channel-handle').val()||'').trim();
+  const shown = rawCh || '@ShmirchikArt (varsayılan)';
+  if(!confirm(`NLP tam kanal taraması başlatılsın?\n${shown} · 2023-2026\nBu işlem uzun sürebilir.`)) return;
   $('#nlp-status').html('<span class="spin"></span> NLP kanal taraması başlatıldı...');
-  // channel_url backend config'den alınır (hard-code yok)
+  // channel_url textbox'tan gelebilir (@handle ya da URL), backend normalize eder.
   $.post('/api/nlp/channel-scan',{
-    channel_url:'',
+    channel_url:rawCh,
     date_from:'2023-01-01', date_to:'2026-12-31'
   },function(d){
     status('✅ '+d.message, 5000);
@@ -7530,7 +7556,8 @@ def create_app():
         HEM /videos HEM /streams — tüm yorumlar + canlı chat.
         channel_url boş gelirse CFG'den alınır (hard-code yok).
         """
-        channel_url = (request.form.get("channel_url") or "").strip() or CFG["channel_url"]
+        raw_channel = (request.form.get("channel_url") or "").strip()
+        channel_url = _normalize_channel_url_input(raw_channel) or CFG["channel_url"]
         date_from   = (request.form.get("date_from")   or "").strip() or CFG.get("date_from","2023-01-01")
         date_to     = (request.form.get("date_to")     or "").strip() or CFG.get("date_to","2026-12-31")
         def _bg():
