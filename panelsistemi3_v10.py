@@ -6405,7 +6405,7 @@ def create_app():
                 f"SELECT video_id, MIN(timestamp) AS min_live_ts"
                 f" FROM messages"
                 f" WHERE video_id IN ({q_marks}) AND timestamp>0"
-                f" AND source_type IN ('replay_chat','live_chat','live','stream','stream_chat')"
+                f" AND source_type IN ('replay_chat','live_chat','live','stream')"
                 f" GROUP BY video_id",
                 tuple(vids), fetch="all"
             ) or []
@@ -6444,7 +6444,7 @@ def create_app():
 
             src_norm = str(m.get("source_type") or "").strip().lower()
             min_ts = ts_map.get((vid, src_norm), 0)
-            if min_ts <= 0 and src_norm in ("replay_chat", "live_chat", "live", "stream", "stream_chat"):
+            if min_ts <= 0 and src_norm in ("replay_chat", "live_chat", "live", "stream"):
                 min_ts = ts_video_live_map.get(vid, 0)
             secs = _estimate_watch_seconds(
                 ts=m.get("timestamp") or 0,
