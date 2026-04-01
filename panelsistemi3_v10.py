@@ -1625,53 +1625,67 @@ def ytdlp_list_videos(channel_url: str, date_from: str, date_to: str) -> List[Di
 
     videos: List[Dict] = []
     seen_ids: set      = set()
+    source_rows: Dict[str, deque] = {}
 
+    # Her kaynağı ayrı kuyrukta hazırla
     for src_url in _candidate_channel_urls(channel_url):
-        entries    = _ytdlp_fetch_playlist(src_url)
-        found_here = 0
-
+        entries = _ytdlp_fetch_playlist(src_url)
+        rows: List[Dict] = []
         for e in entries:
             if not isinstance(e, dict):
                 continue
-
             vid_id = (e.get("id") or "").strip()
-            if not vid_id or len(vid_id) != 11 or vid_id in seen_ids:
+            if not vid_id or len(vid_id) != 11:
                 continue
 
             title       = (e.get("title") or "").strip()
             upload_date = (e.get("upload_date") or "").strip()
             ts          = int(e.get("timestamp") or e.get("release_timestamp") or 0)
 
-            # ── Tarih türetme (hard-coding YOK) ──────────────────────────────
             if not upload_date:
                 if ts:
                     upload_date = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d")
                 else:
-                    # Herhangi bir metin alanında görece tarih varsa parse et
                     for field in ("description", "view_count_text", "duration_string",
                                   "live_status", "availability"):
-                        val = str(e.get(field) or "")
-                        rel = _parse_relative_date(val)
+                        rel = _parse_relative_date(str(e.get(field) or ""))
                         if rel:
                             upload_date = rel
                             break
 
-            # ── Tarih filtresi ────────────────────────────────────────────────
             if upload_date:
-                if date_after  and upload_date < date_after:  continue
-                if date_before and upload_date > date_before: continue
+                if date_after and upload_date < date_after:
+                    continue
+                if date_before and upload_date > date_before:
+                    continue
 
-            videos.append({
+            rows.append({
                 "video_id":   vid_id,
                 "title":      title,
                 "video_date": upload_date,
                 "source_url": src_url,
             })
-            seen_ids.add(vid_id)
-            found_here += 1
+        source_rows[src_url] = deque(rows)
+        log.info("yt-dlp kaynak: %s → %d aday video", src_url, len(rows))
 
-        log.info("yt-dlp kaynak: %s → %d video (%d toplam)", src_url, found_here, len(videos))
-        # Erken çıkış YOK — tüm kaynaklar taranır
+    # /videos, /streams, /live, ... kaynaklarını round-robin işle:
+    # 1 tane /videos'tan sonra 1 tane /streams yaklaşımını genelleştirir.
+    ordered_sources = list(source_rows.keys())
+    while True:
+        progressed = False
+        for src_url in ordered_sources:
+            rows = source_rows.get(src_url) or deque()
+            while rows:
+                row = rows.popleft()
+                vid_id = row["video_id"]
+                if vid_id in seen_ids:
+                    continue
+                videos.append(row)
+                seen_ids.add(vid_id)
+                progressed = True
+                break
+        if not progressed:
+            break
 
     log.info("yt-dlp: toplam %d benzersiz video", len(videos))
     return videos
