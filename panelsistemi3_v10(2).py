@@ -26,10 +26,10 @@ KONFİGÜRASYON (yt_guardian_config.json — opsiyonel):
   {
     "yt_email":    "physicus93@hotmail.com",
     "yt_password": "%C7JdE4,)$MS;4'",
-    "channel_url": "https://www.youtube.com/@ShmirchikArt/streams",
+    "channel_url": "https://www.youtube.com/@orielinIsrael/streams",
     "date_from":   "2023-01-01",
     "date_to":     "2026-12-31",
-    "flask_port":  5023,
+    "flask_port":  5004,
     "device":      "auto"
   }
 """
@@ -149,14 +149,14 @@ log = logging.getLogger("YTG")
 _DEFAULT_CFG = {
     "yt_email":             "physicus93@hotmail.com",
     "yt_password":          "%C7JdE4,)$MS;4'",
-    "channel_url":          "https://www.youtube.com/@ShmirchikArt/streams",
-    "channel_handle":       "@ShmirchikArt",
+    "channel_url":          "https://www.youtube.com/@orielinIsrael/streams",
+    "channel_handle":       "@orielinIsrael",
     "db_path":              "yt_guardian.db",
     "chroma_path":          "./chromadb_data",
     "data_dir":             "./yt_data",
     "ollama_model":         "phi4:14b",
     "ollama_host":          "http://localhost:11434",
-    "flask_port":           5023,
+    "flask_port":           5004,
     "flask_secret":         "ytg_secret_2024_xk9m",
     "date_from":            "2023-01-01",
     "date_to":              "2026-12-31",
@@ -168,7 +168,6 @@ _DEFAULT_CFG = {
     "fasttext_model":       "lid.176.bin",
     "retrain_threshold":    500,
     "new_account_months":   6,
-    "nlp_scan_workers":     8,
     "chromium_binary":      "",
     "chromium_user_data_dir": "",
     "chromium_profile_directory": "Default",
@@ -485,7 +484,6 @@ def init_db():
             message TEXT NOT NULL, timestamp INTEGER, lang TEXT,
             script_type TEXT, source_type TEXT,
             is_live INTEGER DEFAULT 0, deleted INTEGER DEFAULT 0,
-            video_offset_ms INTEGER DEFAULT -1,
             created_at INTEGER DEFAULT (strftime('%s','now'))
         );
         CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
@@ -549,14 +547,6 @@ def init_db():
             chat_count INTEGER DEFAULT 0,
             scraped_at INTEGER DEFAULT (strftime('%s','now'))
         );
-        CREATE TABLE IF NOT EXISTS nlp_scan_progress(
-            video_id TEXT PRIMARY KEY,
-            status TEXT,
-            comment_count INTEGER DEFAULT 0,
-            chat_count INTEGER DEFAULT 0,
-            saved_count INTEGER DEFAULT 0,
-            updated_at INTEGER DEFAULT (strftime('%s','now'))
-        );
         CREATE TABLE IF NOT EXISTS rag_cache(
             id INTEGER PRIMARY KEY AUTOINCREMENT, query_hash TEXT UNIQUE,
             query TEXT, response TEXT,
@@ -602,15 +592,6 @@ def _migrate_legacy_schema(conn: sqlite3.Connection):
             except Exception as e2:
                 log.error("DB migration başarısız: author kolonu oluşturulamadı: %s", e2)
 
-    # ── messages.video_offset_ms migration (v10.3) ──────────────────────────
-    msg_cols = _table_columns(conn, "messages")
-    if "video_offset_ms" not in msg_cols:
-        try:
-            conn.execute("ALTER TABLE messages ADD COLUMN video_offset_ms INTEGER DEFAULT -1")
-            log.info("✅ DB migration: messages.video_offset_ms eklendi")
-        except Exception as e:
-            log.warning("messages.video_offset_ms eklenemedi: %s", e)
-
     cols = _table_columns(conn, "user_profiles")
     required_user_profile_columns = {
         # Eski veritabanlarında bulunmayan ama yeni kod yollarında kullanılan kolonlar.
@@ -654,23 +635,12 @@ def db_exec(sql: str, params: tuple = (), fetch: str = None):
 def upsert_message(msg: dict):
     sql = ("INSERT OR IGNORE INTO messages"
            "(id,video_id,title,video_date,author,author_cid,message,timestamp,"
-           "lang,script_type,source_type,is_live,video_offset_ms) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
+           "lang,script_type,source_type,is_live) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
     db_exec(sql, (msg["msg_id"],msg.get("video_id",""),msg.get("title",""),
                   msg.get("video_date",""),msg["author"],msg.get("author_channel_id",""),
                   msg["message"],msg.get("timestamp_utc",0),msg.get("lang_detected",""),
                   msg.get("script",""),msg.get("source_type","comment"),
-                  int(msg.get("is_live",False)),
-                  int(msg.get("video_offset_ms", -1))))
-
-def upsert_nlp_scan_progress(video_id: str, status: str,
-                             comment_count: int = 0, chat_count: int = 0,
-                             saved_count: int = 0):
-    db_exec(
-        "INSERT OR REPLACE INTO nlp_scan_progress"
-        " (video_id,status,comment_count,chat_count,saved_count,updated_at)"
-        " VALUES(?,?,?,?,?,strftime('%s','now'))",
-        (video_id, status, int(comment_count or 0), int(chat_count or 0), int(saved_count or 0))
-    )
+                  int(msg.get("is_live",False))))
 
 def upsert_profile(author: str, upd: dict):
     if not db_exec("SELECT 1 FROM user_profiles WHERE author=?", (author,), fetch="one"):
@@ -1000,8 +970,6 @@ def process_raw(raw: dict) -> Optional[dict]:
             "source_type":       raw.get("source_type","comment"),
             "emojis":            extract_emojis(message),
             "is_live":           raw.get("is_live",False),
-            # video içi kesin relatif offset (ms); -1 = bilinmiyor
-            "video_offset_ms":   int(raw.get("video_offset_ms", -1)),
         }
     except: return None
 
@@ -1644,67 +1612,53 @@ def ytdlp_list_videos(channel_url: str, date_from: str, date_to: str) -> List[Di
 
     videos: List[Dict] = []
     seen_ids: set      = set()
-    source_rows: Dict[str, deque] = {}
 
-    # Her kaynağı ayrı kuyrukta hazırla
     for src_url in _candidate_channel_urls(channel_url):
-        entries = _ytdlp_fetch_playlist(src_url)
-        rows: List[Dict] = []
+        entries    = _ytdlp_fetch_playlist(src_url)
+        found_here = 0
+
         for e in entries:
             if not isinstance(e, dict):
                 continue
+
             vid_id = (e.get("id") or "").strip()
-            if not vid_id or len(vid_id) != 11:
+            if not vid_id or len(vid_id) != 11 or vid_id in seen_ids:
                 continue
 
             title       = (e.get("title") or "").strip()
             upload_date = (e.get("upload_date") or "").strip()
             ts          = int(e.get("timestamp") or e.get("release_timestamp") or 0)
 
+            # ── Tarih türetme (hard-coding YOK) ──────────────────────────────
             if not upload_date:
                 if ts:
                     upload_date = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d")
                 else:
+                    # Herhangi bir metin alanında görece tarih varsa parse et
                     for field in ("description", "view_count_text", "duration_string",
                                   "live_status", "availability"):
-                        rel = _parse_relative_date(str(e.get(field) or ""))
+                        val = str(e.get(field) or "")
+                        rel = _parse_relative_date(val)
                         if rel:
                             upload_date = rel
                             break
 
+            # ── Tarih filtresi ────────────────────────────────────────────────
             if upload_date:
-                if date_after and upload_date < date_after:
-                    continue
-                if date_before and upload_date > date_before:
-                    continue
+                if date_after  and upload_date < date_after:  continue
+                if date_before and upload_date > date_before: continue
 
-            rows.append({
+            videos.append({
                 "video_id":   vid_id,
                 "title":      title,
                 "video_date": upload_date,
                 "source_url": src_url,
             })
-        source_rows[src_url] = deque(rows)
-        log.info("yt-dlp kaynak: %s → %d aday video", src_url, len(rows))
+            seen_ids.add(vid_id)
+            found_here += 1
 
-    # /videos, /streams, /live, ... kaynaklarını round-robin işle:
-    # 1 tane /videos'tan sonra 1 tane /streams yaklaşımını genelleştirir.
-    ordered_sources = list(source_rows.keys())
-    while True:
-        progressed = False
-        for src_url in ordered_sources:
-            rows = source_rows.get(src_url) or deque()
-            while rows:
-                row = rows.popleft()
-                vid_id = row["video_id"]
-                if vid_id in seen_ids:
-                    continue
-                videos.append(row)
-                seen_ids.add(vid_id)
-                progressed = True
-                break
-        if not progressed:
-            break
+        log.info("yt-dlp kaynak: %s → %d video (%d toplam)", src_url, found_here, len(videos))
+        # Erken çıkış YOK — tüm kaynaklar taranır
 
     log.info("yt-dlp: toplam %d benzersiz video", len(videos))
     return videos
@@ -1812,20 +1766,11 @@ def _video_base_timestamp(video_date: str) -> int:
     except: return 0
 
 def _estimate_watch_seconds(ts: int, video_date: str = "",
-                            min_ts: int = 0, source_type: str = "",
-                            video_offset_ms: int = -1) -> int:
+                            min_ts: int = 0, source_type: str = "") -> int:
     """
-    Mesajın videodaki saniyesini hesaplar.
-    Öncelik sırası (en doğrudan en heuristiğe):
-      1. video_offset_ms >= 0  → video başından itibaren kesin ms, doğrudan kullan
-      2. min_ts (replay/live)  → ts - min_ts  (ilk mesaj ≈ stream başlangıcı, tahmini)
-      3. ts < 1e9              → zaten relatif saniye olarak saklanmış
-      4. video_date fallback   → ts - gece_yarısı_UTC (en hatalı, son çare)
+    Mesajın videodaki yaklaşık saniyesini hesaplar.
+    Hard-code yok: yalnızca DB'deki timestamp/video_date bilgisi kullanılır.
     """
-    # Öncelik 1 — doğrudan video-içi offset (tOffsetMs / videoOffsetTimeMsec)
-    if video_offset_ms >= 0:
-        return video_offset_ms // 1000
-
     try:
         ts = int(ts or 0)
     except Exception:
@@ -1833,26 +1778,22 @@ def _estimate_watch_seconds(ts: int, video_date: str = "",
     if ts <= 0:
         return 0
 
-    # Öncelik 2 — replay/live chat için min_ts kullan (tahmini)
+    # Unix epoch ise (>= 2001) replay chat için video içi relatif saniyeye indir.
     if min_ts and min_ts >= 1_000_000_000 and source_type in ("replay_chat", "live_chat", "live"):
         return max(0, ts - int(min_ts))
 
-    # Öncelik 3 — zaten relatif saniye
+    # Zaten offset saniyesi olarak tutulmuş kayıtlar.
     if ts < 1_000_000_000:
         return max(0, ts)
 
-    # Öncelik 4 — son çare: gece yarısı UTC (yanlış olabilir)
     base_ts = _video_base_timestamp(video_date or "")
     if base_ts and ts >= base_ts:
         return max(0, ts - base_ts)
     return 0
 
 def _parse_live_chat_json3(cd: dict, video_id: str, title: str,
-                            video_date: str, stream_start_ts: int) -> List[Dict]:
-    """JSON3 formatı (.live_chat.json3): events[].segs + tOffsetMs
-    stream_start_ts: info.json'dan okunan gerçek stream başlangıç Unix timestamp'i.
-    Her mesaja video_offset_ms (video başından itibaren ms) kaydedilir.
-    """
+                            video_date: str, base_ts: int) -> List[Dict]:
+    """JSON3 formatı (.live_chat.json3): events[].segs + tOffsetMs"""
     msgs = []
     for ev in cd.get("events", []):
         segs = ev.get("segs", [])
@@ -1862,21 +1803,11 @@ def _parse_live_chat_json3(cd: dict, video_id: str, title: str,
         author = ev.get("authorName", "")
         if not author:
             continue
-        # tOffsetMs: video başından itibaren ms — kesinlikle doğru relatif offset
         t_off_ms = int(ev.get("tOffsetMs", 0) or 0)
-        # timestampUsec: mutlak UTC mikrosaniye — varsa ABS timestamp türet
-        ts_usec = int(ev.get("timestampUsec", 0) or 0)
-        if ts_usec > 0:
-            abs_ts = ts_usec // 1_000_000
-            # stream_start_ts güvenilirse offset'i yeniden hesapla
-            if stream_start_ts > 0:
-                t_off_ms = max(0, (abs_ts - stream_start_ts) * 1000)
-        else:
-            abs_ts = stream_start_ts + t_off_ms // 1000 if stream_start_ts else t_off_ms // 1000
+        abs_ts = base_ts + t_off_ms // 1000 if base_ts else t_off_ms // 1000
         m = process_raw({"video_id":video_id,"title":title,"video_date":video_date,
                          "author":author,"author_channel_id":ev.get("authorExternalChannelId",""),
                          "message":text,"timestamp_utc":abs_ts,
-                         "video_offset_ms": t_off_ms,
                          "source_type":"replay_chat","is_live":False})
         if m:
             msgs.append(m)
@@ -1892,7 +1823,7 @@ def _parse_live_chat_json3(cd: dict, video_id: str, title: str,
     for act in actions:
         replay = act.get("replayChatItemAction", act)
         offset_ms = int(replay.get("videoOffsetTimeMsec", 0) or 0)
-        abs_ts = stream_start_ts + offset_ms // 1000 if stream_start_ts else offset_ms // 1000
+        abs_ts = base_ts + offset_ms // 1000 if base_ts else offset_ms // 1000
         for item in replay.get("actions", [replay]):
             renderer = (item.get("addChatItemAction", {})
                            .get("item", {})
@@ -1908,28 +1839,20 @@ def _parse_live_chat_json3(cd: dict, video_id: str, title: str,
             author = renderer.get("authorName", {}).get("simpleText", "")
             if not text or not author:
                 continue
-            # timestampUsec öncelikli (mutlak mikrosaniye → saniye)
             ts_usec = int(renderer.get("timestampUsec", "0") or "0")
             if ts_usec > 0:
                 abs_ts = ts_usec // 1_000_000
-                # offset_ms'i timestampUsec'ten yeniden hesapla (daha doğru)
-                if stream_start_ts > 0:
-                    offset_ms = max(0, (abs_ts - stream_start_ts) * 1000)
             m = process_raw({"video_id":video_id,"title":title,"video_date":video_date,
                              "author":author,"author_channel_id":renderer.get("authorExternalChannelId",""),
                              "message":text,"timestamp_utc":abs_ts,
-                             "video_offset_ms": offset_ms,
                              "source_type":"replay_chat","is_live":False})
             if m:
                 msgs.append(m)
     return msgs
 
 def _parse_live_chat_jsonl(path: Path, video_id: str, title: str,
-                            video_date: str, stream_start_ts: int) -> List[Dict]:
-    """Ham JSONL formatı (.live_chat.json): her satır bir JSON objesi.
-    stream_start_ts: info.json'dan okunan gerçek stream başlangıç Unix timestamp'i.
-    Her mesaja video_offset_ms (video başından itibaren ms) kaydedilir.
-    """
+                            video_date: str, base_ts: int) -> List[Dict]:
+    """Ham JSONL formatı (.live_chat.json): her satır bir JSON objesi"""
     msgs = []
     try:
         with open(path, encoding="utf-8") as f:
@@ -1942,7 +1865,7 @@ def _parse_live_chat_jsonl(path: Path, video_id: str, title: str,
                 # Replay chat action sarmalayıcısını çöz
                 action = obj.get("replayChatItemAction", obj)
                 offset_ms = int(action.get("videoOffsetTimeMsec", 0) or 0)
-                abs_ts = stream_start_ts + offset_ms // 1000 if stream_start_ts else offset_ms // 1000
+                abs_ts = base_ts + offset_ms // 1000 if base_ts else offset_ms // 1000
                 for act in action.get("actions", [action]):
                     renderer = (act.get("addChatItemAction",{})
                                    .get("item",{})
@@ -1957,18 +1880,14 @@ def _parse_live_chat_jsonl(path: Path, video_id: str, title: str,
                     if not text: continue
                     author = renderer.get("authorName",{}).get("simpleText","")
                     if not author: continue
-                    # timestampUsec öncelikli (mutlak mikrosaniye → saniye)
+                    # timestampUsec öncelikli (mikrosaniye → saniye)
                     ts_usec = int(renderer.get("timestampUsec","0") or "0")
                     if ts_usec > 0:
                         abs_ts = ts_usec // 1_000_000
-                        # stream_start_ts güvenilirse offset_ms'i yeniden hesapla
-                        if stream_start_ts > 0:
-                            offset_ms = max(0, (abs_ts - stream_start_ts) * 1000)
                     cid = renderer.get("authorExternalChannelId","")
                     m = process_raw({"video_id":video_id,"title":title,"video_date":video_date,
                                       "author":author,"author_channel_id":cid,
                                       "message":text,"timestamp_utc":abs_ts,
-                                      "video_offset_ms": offset_ms,
                                       "source_type":"replay_chat","is_live":False})
                     if m: msgs.append(m)
     except Exception as e:
@@ -1984,22 +1903,6 @@ def ytdlp_live_chat(video_id: str, title: str = "", video_date: str = "") -> Lis
             data = json.load(open(cache, encoding="utf-8"))
             if data: return data
         except: pass
-
-    # Önce yorumlar klasöründe info.json varsa live_status kontrol et
-    # (ytdlp_comments zaten indirmiş olabilir).
-    # ÖNEMLİ: Bazı VOD'larda live_status "not_live" görünse bile replay_chat
-    # altyazısı mevcut olabiliyor. Bu yüzden artık erken çıkış YOK; sadece log.
-    _LIVE_STATUSES = ("was_live", "is_live", "post_live")
-    comments_info = Path(CFG["data_dir"]) / "comments" / f"{video_id}.info.json"
-    if comments_info.exists():
-        try:
-            _ci = json.load(open(comments_info, encoding="utf-8"))
-            live_status = (_ci.get("live_status") or "").lower()
-            if live_status and not any(s in live_status for s in _LIVE_STATUSES):
-                log.info("  %s live_status='%s' → yine de replay_chat denenecek",
-                         video_id, live_status)
-        except Exception:
-            pass  # info.json bozuksa devam et, yt-dlp denesin
 
     # yt-dlp komutu: json3 formatını dene (hem json hem json3 uzantısını kontrol et)
     # 8) ytdlp_live_chat() içinde cmd satırını değiştir
@@ -2018,33 +1921,7 @@ def ytdlp_live_chat(video_id: str, title: str = "", video_date: str = "") -> Lis
     except Exception as e:
         log.warning("Live chat indir hatası %s: %s", video_id, e)
 
-    # ── Gerçek stream başlangıç zamanını info.json'dan oku ───────────────────
-    # BUG FIX: _video_base_timestamp(video_date) gece yarısı UTC döndürür.
-    # info.json'daki `timestamp` / `release_timestamp` stream'in tam başlangıç
-    # saatini (Unix saniye) verir — yalnızca bunu kullan.
-    # Öncelik: chats/info.json → comments/info.json → gece yarısı fallback
-    stream_start_ts: int = 0
-    for _info_dir in (odir, Path(CFG["data_dir"]) / "comments"):
-        _info_path = _info_dir / f"{video_id}.info.json"
-        if _info_path.exists():
-            try:
-                _info = json.load(open(_info_path, encoding="utf-8"))
-                _ts = int(_info.get("timestamp") or _info.get("release_timestamp") or 0)
-                if _ts > 1_000_000_000:          # geçerli Unix timestamp
-                    stream_start_ts = _ts
-                    log.info("  %s stream başlangıcı (info.json): %s UTC",
-                             video_id,
-                             datetime.fromtimestamp(_ts, tz=timezone.utc).isoformat())
-                    break
-            except Exception:
-                pass
-    if not stream_start_ts:
-        # Son çare: gece yarısı UTC (eski davranış — yanlış ama hiç yoktan iyi)
-        stream_start_ts = _video_base_timestamp(video_date)
-        if stream_start_ts:
-            log.warning("  %s info.json'da timestamp yok, gece yarısı UTC kullanılıyor"
-                        " — watch_seconds hatalı olabilir", video_id)
-
+    base_ts = _video_base_timestamp(video_date)
     msgs: List[Dict] = []
 
     # 1) JSON3 formatı → .live_chat.json3
@@ -2052,7 +1929,7 @@ def ytdlp_live_chat(video_id: str, title: str = "", video_date: str = "") -> Lis
     if chat_json3.exists():
         try:
             cd = json.load(open(chat_json3, encoding="utf-8"))
-            msgs = _parse_live_chat_json3(cd, video_id, title, video_date, stream_start_ts)
+            msgs = _parse_live_chat_json3(cd, video_id, title, video_date, base_ts)
             log.info("  %s live chat (json3): %d", video_id, len(msgs))
         except Exception as e:
             log.warning("JSON3 parse hatası %s: %s", video_id, e)
@@ -2061,7 +1938,7 @@ def ytdlp_live_chat(video_id: str, title: str = "", video_date: str = "") -> Lis
     if not msgs:
         chat_jsonl = odir / f"{video_id}.live_chat.json"
         if chat_jsonl.exists():
-            msgs = _parse_live_chat_jsonl(chat_jsonl, video_id, title, video_date, stream_start_ts)
+            msgs = _parse_live_chat_jsonl(chat_jsonl, video_id, title, video_date, base_ts)
             log.info("  %s live chat (jsonl): %d", video_id, len(msgs))
 
     # 3) Glob ile kalan dosyaları tara (bilinmeyen uzantılar)
@@ -2072,9 +1949,9 @@ def ytdlp_live_chat(video_id: str, title: str = "", video_date: str = "") -> Lis
                     content = open(f, encoding="utf-8").read().strip()
                     if content.startswith("{"):
                         cd = json.loads(content)
-                        msgs = _parse_live_chat_json3(cd, video_id, title, video_date, stream_start_ts)
+                        msgs = _parse_live_chat_json3(cd, video_id, title, video_date, base_ts)
                     else:
-                        msgs = _parse_live_chat_jsonl(f, video_id, title, video_date, stream_start_ts)
+                        msgs = _parse_live_chat_jsonl(f, video_id, title, video_date, base_ts)
                     if msgs:
                         log.info("  %s live chat (glob %s): %d", video_id, f.name, len(msgs))
                         break
@@ -2118,8 +1995,9 @@ def _scrape_one_video(vid: Dict, idx: int, total_count: int,
                        emit_fn=None) -> Tuple[int, int, int]:
     """
     Tek bir video için hem yorumları hem canlı chat'i çek.
-    Tüm videolarda HEM yorum HEM replay/live chat kontrol edilir.
-    Böylece video /videos listesinden gelmiş olsa bile replay_chat kaçmaz.
+    source_type:
+      - /streams'ten gelen → "stream"  (yorum + replay chat)
+      - /videos'tan gelen  → "comment" (sadece yorum; live chat genelde yok)
     Dönüş: (comment_count, chat_count, saved_count)
     """
     vid_id = vid["video_id"]
@@ -2127,8 +2005,7 @@ def _scrape_one_video(vid: Dict, idx: int, total_count: int,
     date   = vid.get("video_date", "")
     src    = vid.get("source_url", "")
 
-    # Kaynak URL'ye göre yorum etiketi belirle (stream videolarda source_type=stream)
-    # Not: Chat çekimi artık kaynak tipinden bağımsız, tüm videolarda denenir.
+    # Kaynak URL'ye göre tip belirle (hard-coding yok)
     is_stream_source = "/streams" in src or "/live" in src
 
     if emit_fn:
@@ -2149,13 +2026,12 @@ def _scrape_one_video(vid: Dict, idx: int, total_count: int,
     except Exception as e:
         log.warning("[%d/%d] %s yorum hatası: %s", idx, total_count, vid_id, e)
 
-    # Replay/live chat: TÜM videolarda dene.
-    # Bu sayede /videos kaynağından gelen ama canlı yayın kaydı olan videolarda
-    # replay_chat + comment birlikte çekilir.
-    try:
-        chats = ytdlp_live_chat(vid_id, title, date)
-    except Exception as e:
-        log.warning("[%d/%d] %s live chat hatası: %s", idx, total_count, vid_id, e)
+    # Canlı chat: yalnızca stream kaynağından gelen videoları dene
+    if is_stream_source:
+        try:
+            chats = ytdlp_live_chat(vid_id, title, date)
+        except Exception as e:
+            log.warning("[%d/%d] %s live chat hatası: %s", idx, total_count, vid_id, e)
 
     all_msgs = comments + chats
     saved = 0
@@ -2226,8 +2102,7 @@ _NLP_CHAT_CATEGORIES = [
     "neutral chat message",
 ]
 
-def nlp_filter_messages(raw_msgs: List[Dict], batch_size: int = 50,
-                        video_id: str = "") -> List[Dict]:
+def nlp_filter_messages(raw_msgs: List[Dict], batch_size: int = 50) -> List[Dict]:
     """
     NLP ile mesajları filtrele:
     - Spam/bot mesajları temizle
@@ -2263,8 +2138,7 @@ def nlp_filter_messages(raw_msgs: List[Dict], batch_size: int = 50,
                 except: pass
             filtered.append(msg)
     kept = [m for m in filtered if not m.get("_nlp_filtered", False)]
-    vid_tag = f" [{video_id}]" if video_id else ""
-    log.info("NLP filtre%s: %d → %d mesaj kaldı", vid_tag, len(raw_msgs), len(kept))
+    log.info("NLP filtre: %d → %d mesaj kaldı", len(raw_msgs), len(kept))
     return kept
 
 def nlp_cluster_chat(msgs: List[Dict], eps: float = 0.35,
@@ -2380,17 +2254,11 @@ def nlp_timeline_analysis(msgs: List[Dict], bin_minutes: int = 5) -> Dict:
 
 def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
                           auto_analyze: bool = True,
-                          filter_spam: bool = True,
-                          source_url: str = "",
-                          refresh_global_tfidf: bool = True) -> Dict:
+                          filter_spam: bool = True) -> Dict:
     """
     NLP Tabanlı Otomatik Canlı Yayın Tekrar Sohbet Analizi
     ────────────────────────────────────────────────────────
-    source_url parametresi ile video türü otomatik belirlenir (hard-coding yok):
-      - /streams veya /live kaynağı → ytdlp_live_chat (replay chat), boşsa yorum fallback
-      - /videos veya diğer kaynaklar → ytdlp_comments (yorum), boşsa live_chat fallback
-    source_url yoksa her iki yöntem de denenir (geriye dönük uyumluluk).
-    1. yt-dlp ile ham veri çek (tür otomatik belirlenir)
+    1. yt-dlp ile ham chat verisi çek
     2. NLP filtresi ile spam/bot mesajları temizle
     3. Embedding ile mesajları kümele
     4. Koordineli saldırı tespit et
@@ -2398,46 +2266,17 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
     6. Konuları çıkar
     7. Tehditkar kullanıcıları DB'ye kaydet
     """
-    # Kaynak URL'ye göre video türünü belirle — _scrape_one_video ile aynı mantık
-    is_stream_source = "/streams" in source_url or "/live" in source_url
-    src_label = "stream/live" if is_stream_source else ("bilinmiyor" if not source_url else "video/yorum")
-    log.info("🤖 NLP Replay Chat Analizi başlıyor: %s (kaynak=%s)", video_id, src_label)
+    log.info("🤖 NLP Replay Chat Analizi başlıyor: %s", video_id)
 
-    # 1. Ham veriyi çek — HEM replay_chat HEM comment ikisini birden çek
-    # Her kaynak kendi source_type etiketiyle DB'ye kaydedilir.
-    raw_msgs: List[Dict] = []
-    _chat_msgs: List[Dict] = []
-    _comment_msgs: List[Dict] = []
-
-    if not source_url:
-        # source_url verilmemişse her ikisini de dene
-        _chat_msgs    = ytdlp_live_chat(video_id, title, video_date)
-        _comment_msgs = ytdlp_comments(video_id, title, video_date, source_type="comment")
-    elif is_stream_source:
-        # /streams veya /live: replay chat + stream yorumları
-        _chat_msgs    = ytdlp_live_chat(video_id, title, video_date)
-        _comment_msgs = ytdlp_comments(video_id, title, video_date, source_type="stream")
-    else:
-        # /videos veya diğer: yalnızca yorumlar + live chat fallback
-        _comment_msgs = ytdlp_comments(video_id, title, video_date, source_type="comment")
-        _chat_msgs    = ytdlp_live_chat(video_id, title, video_date)
-
-    log.info("NLP analiz %s: replay_chat=%d comment=%d",
-             video_id, len(_chat_msgs), len(_comment_msgs))
-
-    # Birleştir — kaynak tipini koruyarak
-    raw_msgs = _chat_msgs + _comment_msgs
-
+    # 1. Ham veriyi çek
+    raw_msgs = ytdlp_live_chat(video_id, title, video_date)
     if not raw_msgs:
-        upsert_nlp_scan_progress(video_id, "no_data", len(_comment_msgs), len(_chat_msgs), 0)
-        log.info("NLP analiz: %s için veri bulunamadı (kaynak=%s) — atlanıyor",
-                 video_id, src_label)
-        return {"video_id": video_id, "status": "no_data", "messages": 0,
-                "source_url": source_url}
+        log.warning("NLP analiz: %s için sohbet verisi bulunamadı", video_id)
+        return {"video_id":video_id,"status":"no_data","messages":0}
 
     # 2. NLP filtresi
     if filter_spam:
-        filtered = nlp_filter_messages(raw_msgs, video_id=video_id)
+        filtered = nlp_filter_messages(raw_msgs)
     else:
         filtered = raw_msgs
 
@@ -2448,12 +2287,9 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
         saved += 1
 
     # 4. TF-IDF güncelle
-    # Not: kanal taramasında paralel hız için bu adım video başına kapatılıp
-    # tarama sonunda tek seferde çağrılabilir.
-    if refresh_global_tfidf:
-        all_db_texts = db_exec("SELECT message FROM messages LIMIT 5000", fetch="all") or []
-        if all_db_texts:
-            fit_tfidf([r["message"] for r in all_db_texts])
+    all_db_texts = db_exec("SELECT message FROM messages LIMIT 5000", fetch="all") or []
+    if all_db_texts:
+        fit_tfidf([r["message"] for r in all_db_texts])
 
     # 5. Kümeleme (koordineli saldırı tespiti)
     clusters    = nlp_cluster_chat(filtered)
@@ -2497,8 +2333,6 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
         "title":             title,
         "status":            "ok",
         "raw_messages":      len(raw_msgs),
-        "replay_chat_count": len(_chat_msgs),
-        "comment_count":     len(_comment_msgs),
         "filtered_messages": len(filtered),
         "saved_to_db":       saved,
         "clusters_found":    len(clusters),
@@ -2507,15 +2341,13 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
         "topics":            topics,
         "threat_users":      analyzed[:20],
     }
-    upsert_nlp_scan_progress(video_id, "done", len(_comment_msgs), len(_chat_msgs), saved)
     log.info("✅ NLP Replay Chat tamamlandı: %s → %d mesaj, %d tehdit",
              video_id, saved, len(coordinated))
     return result
 
 def nlp_full_channel_scan(channel_url: str = None,
                            date_from: str = None,
-                           date_to:   str = None,
-                           resume: bool = True) -> Dict:
+                           date_to:   str = None) -> Dict:
     """
     NLP tabanlı tam kanal taraması.
     HEM /videos (normal video yorumları) HEM /streams (canlı yayın tekrarları)
@@ -2529,76 +2361,25 @@ def nlp_full_channel_scan(channel_url: str = None,
     log.info("🤖 NLP Tam Kanal Taraması: %s (%s → %s)",
              channel_url, date_from, date_to)
 
-    videos_all = ytdlp_list_videos(channel_url, date_from, date_to)
-    if not videos_all:
-        return {"status":"no_videos","channel":channel_url}
-
-    videos = videos_all
-    skipped_completed = 0
-    if resume:
-        done_rows = db_exec(
-            "SELECT video_id FROM nlp_scan_progress WHERE status IN ('done','no_data')",
-            fetch="all"
-        ) or []
-        done_ids = {r["video_id"] for r in done_rows}
-        if done_ids:
-            videos = [v for v in videos_all if v.get("video_id") not in done_ids]
-            skipped_completed = len(videos_all) - len(videos)
-            log.info("NLP resume aktif: %d video atlandı (zaten tamamlanmış)", skipped_completed)
-
+    videos = ytdlp_list_videos(channel_url, date_from, date_to)
     if not videos:
-        return {
-            "status": "all_completed",
-            "channel": channel_url,
-            "videos_scanned": 0,
-            "skipped_completed": skipped_completed,
-            "total_videos": len(videos_all),
-        }
+        return {"status":"no_videos","channel":channel_url}
 
     all_results = []
     global_coordinated: List[Dict] = []
-    max_workers = int(CFG.get("nlp_scan_workers", 8) or 8)
-    max_workers = max(1, min(max_workers, 12))
-    log.info("NLP kanal taraması paralel mod: %d worker", max_workers)
 
-    def _scan_one(args):
-        i, vid = args
-        vid_id     = vid["video_id"]
-        title      = vid.get("title","")
-        date       = vid.get("video_date","")
-        source_url = vid.get("source_url","")
+    for i, vid in enumerate(videos):
+        vid_id = vid["video_id"]
+        title  = vid.get("title","")
+        date   = vid.get("video_date","")
         log.info("[%d/%d] NLP analiz: %s — %s", i+1, len(videos), vid_id, title[:40])
         try:
-            r = nlp_auto_replay_chat(
-                vid_id, title, date,
-                auto_analyze=True,
-                source_url=source_url,
-                refresh_global_tfidf=False
-            )
-            return i, r
+            r = nlp_auto_replay_chat(vid_id, title, date, auto_analyze=True)
+            all_results.append(r)
+            global_coordinated.extend(r.get("coordinated_threats",[]))
         except Exception as e:
             log.warning("Video %s NLP hatası: %s", vid_id, e)
-            return i, {"video_id":vid_id,"status":"error","error":str(e)}
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    indexed_results: Dict[int, Dict] = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        fut_map = {
-            pool.submit(_scan_one, (i, vid)): i
-            for i, vid in enumerate(videos)
-        }
-        for fut in as_completed(fut_map):
-            i, r = fut.result()
-            indexed_results[i] = r
-            global_coordinated.extend(r.get("coordinated_threats", []))
-
-    # Sonuçları orijinal video sırasına göre geri sırala
-    all_results = [indexed_results[i] for i in sorted(indexed_results.keys())]
-
-    # TF-IDF modelini paralel tarama sonunda tek seferde güncelle
-    all_db_texts = db_exec("SELECT message FROM messages LIMIT 5000", fetch="all") or []
-    if all_db_texts:
-        fit_tfidf([r["message"] for r in all_db_texts])
+            all_results.append({"video_id":vid_id,"status":"error","error":str(e)})
 
     # Tüm kullanıcılar için final analiz
     all_authors = db_exec(
@@ -2617,8 +2398,6 @@ def nlp_full_channel_scan(channel_url: str = None,
         "channel":            channel_url,
         "date_range":         f"{date_from} → {date_to}",
         "videos_scanned":     len(videos),
-        "total_videos":       len(videos_all),
-        "skipped_completed":  skipped_completed,
         "videos_with_chat":   sum(1 for r in all_results if r.get("status")=="ok"),
         "total_messages":     sum(r.get("filtered_messages",0) for r in all_results),
         "coordinated_threats":len(global_coordinated),
@@ -2882,24 +2661,6 @@ def _extract_channel_id_from_text(text: str) -> str:
         if m:
             return m.group(1)
     return ""
-
-def _normalize_channel_url_input(raw: str) -> str:
-    """
-    UI kanal girdisini normalize eder.
-      @TheWizardsWords -> https://www.youtube.com/@TheWizardsWords
-      youtube.com/...  -> https://youtube.com/...
-      boş              -> ""
-    """
-    s = (raw or "").strip()
-    if not s:
-        return ""
-    if s.startswith("@"):
-        return f"https://www.youtube.com/{s}"
-    if "youtube.com/" in s or "youtu.be/" in s:
-        if not s.startswith(("http://", "https://")):
-            return "https://" + s
-        return s
-    return s
 
 def resolve_author_channel_id(driver, author: str, current_cid: str = "") -> str:
     cid = (current_cid or "").strip()
@@ -4415,12 +4176,6 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
       <option value="ORANGE">🟠 ORANGE</option><option value="YELLOW">🟡 YELLOW</option>
       <option value="GREEN">🟢 GREEN</option>
     </select>
-    <select class="inp" id="usrc" onchange="loadUsers(1)" title="Kaynak Filtresi">
-      <option value="">Tüm Kaynaklar</option>
-      <option value="chat">💬 Chat (replay_chat / live)</option>
-      <option value="comment">🗨️ Yorum (comment)</option>
-      <option value="both">🔀 Her İkisi</option>
-    </select>
     <button class="btn" onclick="analyzeAll()">⚡ Tümünü Analiz Et</button>
     <button class="btn ghost" onclick="doClustering()">🕸️ Kümeleme</button>
     <button class="btn ghost" onclick="inspectNewAccounts()">🆕 Yeni Hesaplar</button>
@@ -4446,8 +4201,6 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
     <thead><tr>
       <th class="sortable" data-sort-key="author" onclick="sortUsers('author')">Kullanıcı <span class="sort-ind">↕</span></th>
       <th class="sortable" data-sort-key="msg_count" onclick="sortUsers('msg_count')">Msg <span class="sort-ind">↕</span></th>
-      <th title="replay_chat / live_chat / live / stream kaynaklı mesaj sayısı" style="cursor:default">💬 Chat</th>
-      <th title="comment kaynaklı mesaj sayısı" style="cursor:default">🗨️ Yorum</th>
       <th class="sortable" data-sort-key="threat_level" onclick="sortUsers('threat_level')">Tehdit <span class="sort-ind">↕</span></th>
       <th class="sortable" data-sort-key="bot_prob" onclick="sortUsers('bot_prob')">Bot% <span class="sort-ind">↕</span></th>
       <th class="sortable" data-sort-key="hate_score" onclick="sortUsers('hate_score')">Nefret% <span class="sort-ind">↕</span></th>
@@ -4628,12 +4381,6 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
 <div id="tab-nlp" class="tab">
   <div class="card">
     <h3>🤖 NLP Tabanlı Canlı Yayın Tekrar Sohbet Analizi</h3>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
-      <input class="inp" id="nlp-channel-handle"
-             placeholder="@TheWizardsWords (opsiyonel kanal adı)"
-             style="min-width:260px;flex:1">
-      <div style="font-size:11px;color:var(--tx2)">Boş bırakılırsa varsayılan kanal kullanılır.</div>
-    </div>
     <p style="font-size:11px;color:var(--tx2);margin-bottom:12px">
       Kanal: <b style="color:var(--acc)">@ShmirchikArt</b> · 2023–2026 · BART + Embedding + Kümeleme + Koordineli Saldırı Tespiti
     </p>
@@ -4822,23 +4569,13 @@ function sortUsers(key){
 function loadUsers(p){
   if(p) page.users=p;
   const isBannedView = usersView==='banned';
-  const srcFilter = ($('#usrc').val()||'').trim();
   $.get('/api/users',{page:page.users,size:pgSize,
     filter:$('#uf').val(),threat:$('#tf').val(),banned:isBannedView?1:0,
     sort_by:usersSort.key,sort_dir:usersSort.dir},function(d){
     refreshUsersSortIndicators();
     $('#ucnt').text(d.total + (isBannedView ? ' banlanan kullanıcı' : ' kullanıcı'));
     let h='';
-    let users = d.users||[];
-    // İstemci tarafı kaynak filtresi
-    if(srcFilter==='chat'){
-      users = users.filter(u=>(u.chat_count||0)>0);
-    } else if(srcFilter==='comment'){
-      users = users.filter(u=>(u.comment_count||0)>0);
-    } else if(srcFilter==='both'){
-      users = users.filter(u=>(u.chat_count||0)>0 && (u.comment_count||0)>0);
-    }
-    users.forEach(u=>{
+    (d.users||[]).forEach(u=>{
       const cls=LVL2CLS[u.threat_level]||'G';
       const sp=((u.threat_score||0)*100).toFixed(0);
       const ytHandle = u.author.replace(/^@+/,'');
@@ -4847,16 +4584,10 @@ function loadUsers(p){
            <a href="https://www.youtube.com/@${ytHandle}" target="_blank" rel="noopener noreferrer"
               class="btn ghost" style="font-size:10px;padding:2px 6px;text-decoration:none" title="YouTube Kanalı Aç">🔗 Kanal</a>`
         : `<button class="btn red" style="font-size:10px;padding:2px 6px" onclick="banUser('${u.author}')">🚫</button>`;
-      const chatCnt    = u.chat_count    || 0;
-      const commentCnt = u.comment_count || 0;
-      const chatStyle    = chatCnt    > 0 ? 'color:var(--acc);font-weight:600' : 'color:var(--tx2)';
-      const commentStyle = commentCnt > 0 ? 'color:var(--grn);font-weight:600' : 'color:var(--tx2)';
       h+=`<tr>
         <td><a href="#" onclick="showUser('${u.author}')">${u.author}</a>
           ${u.is_new_account?'<sup style="background:var(--pur);color:#fff;padding:1px 4px;border-radius:3px;font-size:9px">YENİ</sup>':''}</td>
         <td>${u.msg_count||0}</td>
-        <td style="${chatStyle}" title="replay_chat/live_chat/live/stream">${chatCnt}</td>
-        <td style="${commentStyle}" title="comment">${commentCnt}</td>
         <td><span class="badge bg-${cls}">${u.threat_level}</span></td>
         <td style="color:var(--blu)">${((u.bot_prob||0)*100).toFixed(0)}%</td>
         <td style="color:var(--red)">${((u.hate_score||0)*100).toFixed(0)}%</td>
@@ -5216,71 +4947,6 @@ function showUser(author){
 
     if(d.ollama_summary) h+=`<div class="card" style="margin-top:10px"><h3>🤖 AI Analizi (Ollama ${d.ollama_action||''})</h3>
       <p style="font-size:12px;color:var(--tx2);line-height:1.6">${d.ollama_summary}</p></div>`;
-
-    // ── Kaynak Dökümü Kartı (replay_chat vs comment) ─────────────────────────
-    const chatCnt    = d.chat_count    || 0;
-    const commentCnt = d.comment_count || 0;
-    const breakdown  = d.source_breakdown || {};
-    const vidBreakdown = d.video_breakdown || [];
-    const totalMsgs  = chatCnt + commentCnt || d.msg_count || 1;
-    const chatPct    = ((chatCnt    / totalMsgs) * 100).toFixed(0);
-    const commentPct = ((commentCnt / totalMsgs) * 100).toFixed(0);
-    h += `<div class="card" style="margin-top:10px;border:1px solid var(--bd)">
-      <h3>📊 Kaynak Dökümü</h3>
-      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px">
-        <div style="text-align:center">
-          <div style="font-size:22px;font-weight:700;color:var(--acc)">${chatCnt}</div>
-          <div style="font-size:11px;color:var(--tx2)">💬 Chat Mesajı</div>
-          <div style="font-size:10px;color:var(--tx2)">(replay_chat / live)</div>
-        </div>
-        <div style="text-align:center">
-          <div style="font-size:22px;font-weight:700;color:var(--grn)">${commentCnt}</div>
-          <div style="font-size:11px;color:var(--tx2)">🗨️ Yorum</div>
-          <div style="font-size:10px;color:var(--tx2)">(comment)</div>
-        </div>
-      </div>`;
-    // Chat bar
-    if(chatCnt > 0 || commentCnt > 0){
-      h+=`<div style="margin-bottom:6px">
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx2);margin-bottom:2px">
-          <span>💬 Chat ${chatPct}%</span><span>🗨️ Yorum ${commentPct}%</span>
-        </div>
-        <div style="height:8px;border-radius:4px;background:var(--bg3);overflow:hidden;display:flex">
-          <div style="width:${chatPct}%;background:var(--acc);transition:width .4s"></div>
-          <div style="width:${commentPct}%;background:var(--grn);transition:width .4s"></div>
-        </div>
-      </div>`;
-    }
-    // Tüm source_type detayları
-    const srcEntries = Object.entries(breakdown);
-    if(srcEntries.length){
-      h+=`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">`;
-      const SRC_ICON = {replay_chat:'💬',live_chat:'🔴',live:'⚡',stream:'📡',comment:'🗨️'};
-      srcEntries.sort((a,b)=>b[1]-a[1]).forEach(([src,cnt])=>{
-        const icon = SRC_ICON[src]||'📄';
-        h+=`<span style="background:var(--bg3);border:1px solid var(--bd);border-radius:5px;
-             padding:3px 8px;font-size:11px">${icon} <b>${src}</b>: ${cnt}</span>`;
-      });
-      h+=`</div>`;
-    }
-    // Video bazlı döküm (ilk 10)
-    if(vidBreakdown.length){
-      h+=`<details style="font-size:11px"><summary style="cursor:pointer;color:var(--tx2);margin-bottom:4px">📹 Video Bazlı Döküm (${vidBreakdown.length})</summary>
-        <table style="width:100%;border-collapse:collapse;font-size:10px;margin-top:4px">
-          <tr style="color:var(--tx2)"><th style="text-align:left;padding:2px 4px">Video</th><th style="padding:2px 4px">Kaynak</th><th style="padding:2px 4px">Mesaj</th></tr>`;
-      vidBreakdown.slice(0,10).forEach(r=>{
-        const srcIcon = {replay_chat:'💬',live_chat:'🔴',live:'⚡',stream:'📡',comment:'🗨️'}[r.source_type]||'📄';
-        const title = (r.title||r.video_id||'?').substring(0,40);
-        h+=`<tr style="border-top:1px solid var(--bd)">
-          <td style="padding:2px 4px;color:var(--tx2)">${title}</td>
-          <td style="padding:2px 4px;text-align:center">${srcIcon} ${r.source_type||'?'}</td>
-          <td style="padding:2px 4px;text-align:center;font-weight:600">${r.cnt}</td>
-        </tr>`;
-      });
-      h+=`</table></details>`;
-    }
-    h+=`</div>`;
-    // ── /Kaynak Dökümü ───────────────────────────────────────────────────────
     if(d.identity_links&&d.identity_links.length){
       h+=`<div style="margin-top:12px"><h4 style="font-size:12px;color:var(--tx2);margin-bottom:6px">🔗 Kimlik Eşleşmeleri</h4>`;
       d.identity_links.forEach(l=>{
@@ -5767,38 +5433,12 @@ function stepReplay(){
   }
   const m = replayState.messages[replayState.idx];
   appendReplayMessage(m);
-
-  // ── Gerçek zamanlı gecikme hesabı ──────────────────────────────────────────
-  // Öncelik 1: video_offset_ms (tOffsetMs / videoOffsetTimeMsec'ten türetilen kesin offset)
-  // Öncelik 2: timestamp (mutlak UTC saniye) — video_offset_ms yoksa
-  // rawGap her zaman milisaniye cinsinden mesajlar arası gerçek geçen süredir.
-  let rawGapMs = 0;
-  const prevM = replayState.idx > 0 ? replayState.messages[replayState.idx - 1] : null;
-
-  const curOffMs  = (m.video_offset_ms != null && m.video_offset_ms >= 0)
-                    ? m.video_offset_ms : -1;
-  const prevOffMs = (prevM && prevM.video_offset_ms != null && prevM.video_offset_ms >= 0)
-                    ? prevM.video_offset_ms : -1;
-
-  if(curOffMs >= 0 && prevOffMs >= 0){
-    // Her iki mesajda da kesin offset var → ms-hassasiyetli gap
-    rawGapMs = Math.max(0, curOffMs - prevOffMs);
-  } else {
-    // Fallback: timestamp (saniye) farkı → ms'e çevir
-    const curTs  = m.timestamp  || 0;
-    const prevTs = (prevM && prevM.timestamp) || curTs;
-    rawGapMs = Math.max(0, (curTs - prevTs) * 1000);
-  }
-
-  replayState.lastTs = m.timestamp || replayState.lastTs;
+  const prevTs = replayState.lastTs || (m.timestamp||0);
+  const curTs  = m.timestamp || prevTs;
+  const rawGap = Math.max(0, curTs - prevTs);
+  replayState.lastTs = curTs;
   replayState.idx += 1;
-
-  // Hız çarpanı uygulandıktan sonra bekleme (ms):
-  //   - Minimum 60 ms (render kasması önlenir)
-  //   - Maksimum 12 000 ms / speed (12 saniyelik mesaj arası ~12 sn bekler —
-  //     uzun sessizliklerde gerçek zamanlı hissi korunur; kullanıcı speed ile değiştirebilir)
-  const maxWaitMs = Math.max(500, 12000 / (replayState.speed || 1));
-  const waitMs = Math.min(maxWaitMs, Math.max(60, rawGapMs / (replayState.speed || 1)));
+  const waitMs = Math.min(1800, Math.max(80, (rawGap*1000) / replayState.speed));
   replayState.timer = setTimeout(stepReplay, waitMs);
 }
 
@@ -6117,13 +5757,11 @@ function pager(id,total,cur,fn){
 let nlpChart = null;
 
 function nlpChannelScan(){
-  const rawCh = ($('#nlp-channel-handle').val()||'').trim();
-  const shown = rawCh || '@ShmirchikArt (varsayılan)';
-  if(!confirm(`NLP tam kanal taraması başlatılsın?\n${shown} · 2023-2026\nBu işlem uzun sürebilir.`)) return;
+  if(!confirm('NLP tam kanal taraması başlatılsın?\n@ShmirchikArt · 2023-2026\nBu işlem uzun sürebilir.')) return;
   $('#nlp-status').html('<span class="spin"></span> NLP kanal taraması başlatıldı...');
-  // channel_url textbox'tan gelebilir (@handle ya da URL), backend normalize eder.
+  // channel_url backend config'den alınır (hard-code yok)
   $.post('/api/nlp/channel-scan',{
-    channel_url:rawCh,
+    channel_url:'',
     date_from:'2023-01-01', date_to:'2026-12-31'
   },function(d){
     status('✅ '+d.message, 5000);
@@ -6317,10 +5955,7 @@ def create_app():
     def index(): return render_template_string(_HTML)
 
     def _attach_watch_links(rows: List[dict]) -> List[dict]:
-        """Mesaj satırlarına video içi zaman ofseti ve YouTube linki ekle.
-        video_offset_ms >= 0 ise doğrudan kullanılır (en doğru yol).
-        Yoksa min_ts heuristiğine düşülür.
-        """
+        """Mesaj satırlarına video içi zaman ofseti ve YouTube linki ekle."""
         out = [dict(r) for r in (rows or [])]
         if not out:
             return out
@@ -6361,20 +5996,12 @@ def create_app():
                 m["watch_seconds"] = 0
                 continue
 
-            # video_offset_ms >= 0 → kesin video-içi offset, doğrudan kullan
-            raw_offset_ms = m.get("video_offset_ms", -1)
-            try:
-                raw_offset_ms = int(raw_offset_ms if raw_offset_ms is not None else -1)
-            except (TypeError, ValueError):
-                raw_offset_ms = -1
-
             min_ts = ts_map.get((vid, str(m.get("source_type") or "")), 0)
             secs = _estimate_watch_seconds(
                 ts=m.get("timestamp") or 0,
                 video_date=vdt,
                 min_ts=min_ts,
-                source_type=str(m.get("source_type") or ""),
-                video_offset_ms=raw_offset_ms,
+                source_type=str(m.get("source_type") or "")
             )
             m["watch_seconds"] = int(secs)
             m["watch_url"] = f"https://youtu.be/{vid}?t={int(secs)}" if secs > 0 else f"https://youtu.be/{vid}"
@@ -6432,23 +6059,7 @@ def create_app():
         tot=(db_exec(f"SELECT COUNT(*) c FROM user_profiles {wh}",tuple(prms),fetch="one") or {}).get("c",0)
         rows=db_exec(f"SELECT * FROM user_profiles {wh} ORDER BY {sort_col} {sort_dir}, threat_score DESC LIMIT ? OFFSET ?",
                      tuple(prms)+(sz,off),fetch="all") or []
-        # Her kullanıcı için source_type bazlı mesaj sayıları
-        users_out = []
-        for r in rows:
-            u = dict(r)
-            author = u.get("author","")
-            src_rows = db_exec(
-                "SELECT source_type, COUNT(*) cnt FROM messages"
-                " WHERE author=? AND deleted=0 GROUP BY source_type",
-                (author,), fetch="all"
-            ) or []
-            chat_cnt    = sum(x["cnt"] for x in src_rows if (x.get("source_type") or "") in ("replay_chat","live_chat","live","stream"))
-            comment_cnt = sum(x["cnt"] for x in src_rows if (x.get("source_type") or "") in ("comment",))
-            u["chat_count"]    = chat_cnt
-            u["comment_count"] = comment_cnt
-            u["source_breakdown"] = {(x.get("source_type") or "diğer"): x["cnt"] for x in src_rows}
-            users_out.append(u)
-        return jsonify({"users": users_out, "total": tot})
+        return jsonify({"users":[dict(r) for r in rows],"total":tot})
 
     @app.route("/api/user/<path:author>")
     def api_user(author):
@@ -6464,25 +6075,6 @@ def create_app():
         d["identity_links"]=[dict(r) for r in links]
         if isinstance(d.get("identity_vector"),dict):
             d["hate_breakdown"]=d["identity_vector"]
-        # ── Kaynak dökümü (replay_chat vs comment) ───────────────────────────
-        src_rows = db_exec(
-            "SELECT source_type, COUNT(*) cnt FROM messages"
-            " WHERE author=? AND deleted=0 GROUP BY source_type",
-            (author,), fetch="all"
-        ) or []
-        d["source_breakdown"] = {(x.get("source_type") or "diğer"): x["cnt"] for x in src_rows}
-        d["chat_count"]    = sum(x["cnt"] for x in src_rows
-                                 if (x.get("source_type") or "") in ("replay_chat","live_chat","live","stream"))
-        d["comment_count"] = sum(x["cnt"] for x in src_rows
-                                 if (x.get("source_type") or "") in ("comment",))
-        # Video bazlı döküm (hem chat hem comment)
-        vid_rows = db_exec(
-            "SELECT video_id, MAX(title) title, source_type, COUNT(*) cnt"
-            " FROM messages WHERE author=? AND deleted=0"
-            " GROUP BY video_id, source_type ORDER BY cnt DESC LIMIT 40",
-            (author,), fetch="all"
-        ) or []
-        d["video_breakdown"] = [dict(r) for r in vid_rows]
         return jsonify(d)
 
     @app.route("/api/user/<path:author>/ban", methods=["POST"])
@@ -7607,7 +7199,6 @@ def create_app():
         vid_id     = request.form.get("video_id","")
         title      = request.form.get("title","")
         video_date = request.form.get("video_date","")
-        source_url = request.form.get("source_url","")   # opsiyonel: kaynak URL (hard-code yok)
         filter_sp  = request.form.get("filter_spam","1") == "1"
         auto_an    = request.form.get("auto_analyze","1") == "1"
         if not vid_id:
@@ -7616,8 +7207,7 @@ def create_app():
             try:
                 r = nlp_auto_replay_chat(vid_id, title, video_date,
                                           auto_analyze=auto_an,
-                                          filter_spam=filter_sp,
-                                          source_url=source_url)
+                                          filter_spam=filter_sp)
                 if _sio:
                     try: _sio.emit("nlp_replay_done", r, namespace="/ws")
                     except: pass
@@ -7634,14 +7224,12 @@ def create_app():
         HEM /videos HEM /streams — tüm yorumlar + canlı chat.
         channel_url boş gelirse CFG'den alınır (hard-code yok).
         """
-        raw_channel = (request.form.get("channel_url") or "").strip()
-        channel_url = _normalize_channel_url_input(raw_channel) or CFG["channel_url"]
+        channel_url = (request.form.get("channel_url") or "").strip() or CFG["channel_url"]
         date_from   = (request.form.get("date_from")   or "").strip() or CFG.get("date_from","2023-01-01")
         date_to     = (request.form.get("date_to")     or "").strip() or CFG.get("date_to","2026-12-31")
-        resume      = (request.form.get("resume")      or "1").strip() != "0"
         def _bg():
             try:
-                result = nlp_full_channel_scan(channel_url, date_from, date_to, resume=resume)
+                result = nlp_full_channel_scan(channel_url, date_from, date_to)
                 if _sio:
                     try:
                         # Büyük payload'ı küçült
@@ -7942,7 +7530,7 @@ def main():
     parser = argparse.ArgumentParser(description="YT Guardian v2.0 — Tek Dosya Moderasyon Sistemi")
     parser.add_argument("--scrape",      action="store_true", help="Sadece kanal tarama yap")
     parser.add_argument("--analyze-all", action="store_true", help="Tüm kullanıcıları analiz et")
-    parser.add_argument("--port",  type=int, default=CFG.get("flask_port",5023))
+    parser.add_argument("--port",  type=int, default=CFG.get("flask_port",5004))
     parser.add_argument("--config",type=str, default="yt_guardian_config.json")
     parser.add_argument("--headless",    action="store_true", help="Firefox headless modda aç")
     parser.add_argument("--login",       action="store_true", help="Başlarken YouTube'a giriş yap")
@@ -8007,3 +7595,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
