@@ -700,6 +700,55 @@ def get_user_msgs(author: str) -> List[Dict]:
                    (author,), fetch="all")
     return [dict(r) for r in rows] if rows else []
 
+def backfill_chat_current_time_offsets() -> dict:
+    """
+    Program her açıldığında replay/live/stream chat mesajlarının
+    video_offset_ms alanını DB üzerinde yeniden dağıtır.
+    NLP yeniden çalıştırılmaz; yalnızca mevcut timestamp verisinden türetilir.
+    """
+    chat_sources = ("replay_chat", "live_chat", "live", "stream", "stream_chat")
+    q = ",".join(["?"] * len(chat_sources))
+    rows = db_exec(
+        "SELECT video_id, MIN(timestamp) AS min_ts, COUNT(*) AS cnt"
+        f" FROM messages WHERE deleted=0 AND timestamp>0 AND source_type IN ({q})"
+        " GROUP BY video_id",
+        chat_sources, fetch="all"
+    ) or []
+
+    videos_updated = 0
+    msgs_updated = 0
+    for r in rows:
+        vid = str(r.get("video_id") or "").strip()
+        min_ts = int(r.get("min_ts") or 0)
+        if not vid or min_ts <= 0:
+            continue
+        try:
+            db_exec(
+                "UPDATE messages"
+                " SET video_offset_ms = CASE"
+                "   WHEN timestamp >= ? THEN (timestamp - ?) * 1000"
+                "   ELSE 0 END"
+                " WHERE deleted=0 AND video_id=? AND timestamp>0"
+                f" AND source_type IN ({q})",
+                (min_ts, min_ts, vid, *chat_sources),
+            )
+            videos_updated += 1
+            msgs_updated += int(r.get("cnt") or 0)
+        except Exception as e:
+            log.warning("video_offset_ms backfill hatası %s: %s", vid, e)
+
+    if rows:
+        sample = rows[0]
+        try:
+            first_ts = int(sample.get("min_ts") or 0)
+            first_dt = datetime.fromtimestamp(first_ts).strftime("%m/%d/%Y, %I:%M:%S %p")
+            log.info("⏱ replay-chat referans zamanı: %s (%s)", first_dt, sample.get("video_id"))
+        except Exception:
+            pass
+    log.info("⏱ chat current_time dağıtımı tamamlandı: %d video / ~%d mesaj",
+             videos_updated, msgs_updated)
+    return {"videos_updated": videos_updated, "messages_updated": msgs_updated}
+
 # ── ChromaDB ─────────────────────────────────────────────────────────────────
 _chroma_client = _ch_msgs = _ch_users = None
 
@@ -7949,6 +7998,7 @@ def bootstrap():
     log.info("═"*60)
     Path(CFG["data_dir"]).mkdir(parents=True,exist_ok=True)
     init_db()
+    backfill_chat_current_time_offsets()
     init_chroma()
     # TF-IDF ile mevcut mesajları yükle
     rows=db_exec("SELECT message FROM messages LIMIT 10000",fetch="all") or []
