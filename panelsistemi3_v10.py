@@ -1625,53 +1625,67 @@ def ytdlp_list_videos(channel_url: str, date_from: str, date_to: str) -> List[Di
 
     videos: List[Dict] = []
     seen_ids: set      = set()
+    source_rows: Dict[str, deque] = {}
 
+    # Her kaynağı ayrı kuyrukta hazırla
     for src_url in _candidate_channel_urls(channel_url):
-        entries    = _ytdlp_fetch_playlist(src_url)
-        found_here = 0
-
+        entries = _ytdlp_fetch_playlist(src_url)
+        rows: List[Dict] = []
         for e in entries:
             if not isinstance(e, dict):
                 continue
-
             vid_id = (e.get("id") or "").strip()
-            if not vid_id or len(vid_id) != 11 or vid_id in seen_ids:
+            if not vid_id or len(vid_id) != 11:
                 continue
 
             title       = (e.get("title") or "").strip()
             upload_date = (e.get("upload_date") or "").strip()
             ts          = int(e.get("timestamp") or e.get("release_timestamp") or 0)
 
-            # ── Tarih türetme (hard-coding YOK) ──────────────────────────────
             if not upload_date:
                 if ts:
                     upload_date = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d")
                 else:
-                    # Herhangi bir metin alanında görece tarih varsa parse et
                     for field in ("description", "view_count_text", "duration_string",
                                   "live_status", "availability"):
-                        val = str(e.get(field) or "")
-                        rel = _parse_relative_date(val)
+                        rel = _parse_relative_date(str(e.get(field) or ""))
                         if rel:
                             upload_date = rel
                             break
 
-            # ── Tarih filtresi ────────────────────────────────────────────────
             if upload_date:
-                if date_after  and upload_date < date_after:  continue
-                if date_before and upload_date > date_before: continue
+                if date_after and upload_date < date_after:
+                    continue
+                if date_before and upload_date > date_before:
+                    continue
 
-            videos.append({
+            rows.append({
                 "video_id":   vid_id,
                 "title":      title,
                 "video_date": upload_date,
                 "source_url": src_url,
             })
-            seen_ids.add(vid_id)
-            found_here += 1
+        source_rows[src_url] = deque(rows)
+        log.info("yt-dlp kaynak: %s → %d aday video", src_url, len(rows))
 
-        log.info("yt-dlp kaynak: %s → %d video (%d toplam)", src_url, found_here, len(videos))
-        # Erken çıkış YOK — tüm kaynaklar taranır
+    # /videos, /streams, /live, ... kaynaklarını round-robin işle:
+    # 1 tane /videos'tan sonra 1 tane /streams yaklaşımını genelleştirir.
+    ordered_sources = list(source_rows.keys())
+    while True:
+        progressed = False
+        for src_url in ordered_sources:
+            rows = source_rows.get(src_url) or deque()
+            while rows:
+                row = rows.popleft()
+                vid_id = row["video_id"]
+                if vid_id in seen_ids:
+                    continue
+                videos.append(row)
+                seen_ids.add(vid_id)
+                progressed = True
+                break
+        if not progressed:
+            break
 
     log.info("yt-dlp: toplam %d benzersiz video", len(videos))
     return videos
@@ -2085,9 +2099,8 @@ def _scrape_one_video(vid: Dict, idx: int, total_count: int,
                        emit_fn=None) -> Tuple[int, int, int]:
     """
     Tek bir video için hem yorumları hem canlı chat'i çek.
-    source_type:
-      - /streams'ten gelen → "stream"  (yorum + replay chat)
-      - /videos'tan gelen  → "comment" (sadece yorum; live chat genelde yok)
+    Tüm videolarda HEM yorum HEM replay/live chat kontrol edilir.
+    Böylece video /videos listesinden gelmiş olsa bile replay_chat kaçmaz.
     Dönüş: (comment_count, chat_count, saved_count)
     """
     vid_id = vid["video_id"]
@@ -2095,7 +2108,8 @@ def _scrape_one_video(vid: Dict, idx: int, total_count: int,
     date   = vid.get("video_date", "")
     src    = vid.get("source_url", "")
 
-    # Kaynak URL'ye göre tip belirle (hard-coding yok)
+    # Kaynak URL'ye göre yorum etiketi belirle (stream videolarda source_type=stream)
+    # Not: Chat çekimi artık kaynak tipinden bağımsız, tüm videolarda denenir.
     is_stream_source = "/streams" in src or "/live" in src
 
     if emit_fn:
@@ -2116,12 +2130,13 @@ def _scrape_one_video(vid: Dict, idx: int, total_count: int,
     except Exception as e:
         log.warning("[%d/%d] %s yorum hatası: %s", idx, total_count, vid_id, e)
 
-    # Canlı chat: yalnızca stream kaynağından gelen videoları dene
-    if is_stream_source:
-        try:
-            chats = ytdlp_live_chat(vid_id, title, date)
-        except Exception as e:
-            log.warning("[%d/%d] %s live chat hatası: %s", idx, total_count, vid_id, e)
+    # Replay/live chat: TÜM videolarda dene.
+    # Bu sayede /videos kaynağından gelen ama canlı yayın kaydı olan videolarda
+    # replay_chat + comment birlikte çekilir.
+    try:
+        chats = ytdlp_live_chat(vid_id, title, date)
+    except Exception as e:
+        log.warning("[%d/%d] %s live chat hatası: %s", idx, total_count, vid_id, e)
 
     all_msgs = comments + chats
     saved = 0
@@ -2789,6 +2804,24 @@ def _extract_channel_id_from_text(text: str) -> str:
         if m:
             return m.group(1)
     return ""
+
+def _normalize_channel_url_input(raw: str) -> str:
+    """
+    UI kanal girdisini normalize eder.
+      @TheWizardsWords -> https://www.youtube.com/@TheWizardsWords
+      youtube.com/...  -> https://youtube.com/...
+      boş              -> ""
+    """
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    if s.startswith("@"):
+        return f"https://www.youtube.com/{s}"
+    if "youtube.com/" in s or "youtu.be/" in s:
+        if not s.startswith(("http://", "https://")):
+            return "https://" + s
+        return s
+    return s
 
 def resolve_author_channel_id(driver, author: str, current_cid: str = "") -> str:
     cid = (current_cid or "").strip()
@@ -4517,6 +4550,12 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
 <div id="tab-nlp" class="tab">
   <div class="card">
     <h3>🤖 NLP Tabanlı Canlı Yayın Tekrar Sohbet Analizi</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <input class="inp" id="nlp-channel-handle"
+             placeholder="@TheWizardsWords (opsiyonel kanal adı)"
+             style="min-width:260px;flex:1">
+      <div style="font-size:11px;color:var(--tx2)">Boş bırakılırsa varsayılan kanal kullanılır.</div>
+    </div>
     <p style="font-size:11px;color:var(--tx2);margin-bottom:12px">
       Kanal: <b style="color:var(--acc)">@ShmirchikArt</b> · 2023–2026 · BART + Embedding + Kümeleme + Koordineli Saldırı Tespiti
     </p>
@@ -6000,11 +6039,13 @@ function pager(id,total,cur,fn){
 let nlpChart = null;
 
 function nlpChannelScan(){
-  if(!confirm('NLP tam kanal taraması başlatılsın?\n@ShmirchikArt · 2023-2026\nBu işlem uzun sürebilir.')) return;
+  const rawCh = ($('#nlp-channel-handle').val()||'').trim();
+  const shown = rawCh || '@ShmirchikArt (varsayılan)';
+  if(!confirm(`NLP tam kanal taraması başlatılsın?\n${shown} · 2023-2026\nBu işlem uzun sürebilir.`)) return;
   $('#nlp-status').html('<span class="spin"></span> NLP kanal taraması başlatıldı...');
-  // channel_url backend config'den alınır (hard-code yok)
+  // channel_url textbox'tan gelebilir (@handle ya da URL), backend normalize eder.
   $.post('/api/nlp/channel-scan',{
-    channel_url:'',
+    channel_url:rawCh,
     date_from:'2023-01-01', date_to:'2026-12-31'
   },function(d){
     status('✅ '+d.message, 5000);
@@ -7515,7 +7556,8 @@ def create_app():
         HEM /videos HEM /streams — tüm yorumlar + canlı chat.
         channel_url boş gelirse CFG'den alınır (hard-code yok).
         """
-        channel_url = (request.form.get("channel_url") or "").strip() or CFG["channel_url"]
+        raw_channel = (request.form.get("channel_url") or "").strip()
+        channel_url = _normalize_channel_url_input(raw_channel) or CFG["channel_url"]
         date_from   = (request.form.get("date_from")   or "").strip() or CFG.get("date_from","2023-01-01")
         date_to     = (request.form.get("date_to")     or "").strip() or CFG.get("date_to","2026-12-31")
         def _bg():
