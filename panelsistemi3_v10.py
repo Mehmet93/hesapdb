@@ -168,6 +168,7 @@ _DEFAULT_CFG = {
     "fasttext_model":       "lid.176.bin",
     "retrain_threshold":    500,
     "new_account_months":   6,
+    "nlp_scan_workers":     8,
     "chromium_binary":      "",
     "chromium_user_data_dir": "",
     "chromium_profile_directory": "Default",
@@ -2360,7 +2361,8 @@ def nlp_timeline_analysis(msgs: List[Dict], bin_minutes: int = 5) -> Dict:
 def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
                           auto_analyze: bool = True,
                           filter_spam: bool = True,
-                          source_url: str = "") -> Dict:
+                          source_url: str = "",
+                          refresh_global_tfidf: bool = True) -> Dict:
     """
     NLP Tabanlı Otomatik Canlı Yayın Tekrar Sohbet Analizi
     ────────────────────────────────────────────────────────
@@ -2425,9 +2427,12 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
         saved += 1
 
     # 4. TF-IDF güncelle
-    all_db_texts = db_exec("SELECT message FROM messages LIMIT 5000", fetch="all") or []
-    if all_db_texts:
-        fit_tfidf([r["message"] for r in all_db_texts])
+    # Not: kanal taramasında paralel hız için bu adım video başına kapatılıp
+    # tarama sonunda tek seferde çağrılabilir.
+    if refresh_global_tfidf:
+        all_db_texts = db_exec("SELECT message FROM messages LIMIT 5000", fetch="all") or []
+        if all_db_texts:
+            fit_tfidf([r["message"] for r in all_db_texts])
 
     # 5. Kümeleme (koordineli saldırı tespiti)
     clusters    = nlp_cluster_chat(filtered)
@@ -2507,22 +2512,48 @@ def nlp_full_channel_scan(channel_url: str = None,
 
     all_results = []
     global_coordinated: List[Dict] = []
+    max_workers = int(CFG.get("nlp_scan_workers", 8) or 8)
+    max_workers = max(1, min(max_workers, 12))
+    log.info("NLP kanal taraması paralel mod: %d worker", max_workers)
 
-    for i, vid in enumerate(videos):
+    def _scan_one(args):
+        i, vid = args
         vid_id     = vid["video_id"]
         title      = vid.get("title","")
         date       = vid.get("video_date","")
         source_url = vid.get("source_url","")
         log.info("[%d/%d] NLP analiz: %s — %s", i+1, len(videos), vid_id, title[:40])
         try:
-            r = nlp_auto_replay_chat(vid_id, title, date,
-                                     auto_analyze=True,
-                                     source_url=source_url)
-            all_results.append(r)
-            global_coordinated.extend(r.get("coordinated_threats",[]))
+            r = nlp_auto_replay_chat(
+                vid_id, title, date,
+                auto_analyze=True,
+                source_url=source_url,
+                refresh_global_tfidf=False
+            )
+            return i, r
         except Exception as e:
             log.warning("Video %s NLP hatası: %s", vid_id, e)
-            all_results.append({"video_id":vid_id,"status":"error","error":str(e)})
+            return i, {"video_id":vid_id,"status":"error","error":str(e)}
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    indexed_results: Dict[int, Dict] = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        fut_map = {
+            pool.submit(_scan_one, (i, vid)): i
+            for i, vid in enumerate(videos)
+        }
+        for fut in as_completed(fut_map):
+            i, r = fut.result()
+            indexed_results[i] = r
+            global_coordinated.extend(r.get("coordinated_threats", []))
+
+    # Sonuçları orijinal video sırasına göre geri sırala
+    all_results = [indexed_results[i] for i in sorted(indexed_results.keys())]
+
+    # TF-IDF modelini paralel tarama sonunda tek seferde güncelle
+    all_db_texts = db_exec("SELECT message FROM messages LIMIT 5000", fetch="all") or []
+    if all_db_texts:
+        fit_tfidf([r["message"] for r in all_db_texts])
 
     # Tüm kullanıcılar için final analiz
     all_authors = db_exec(
