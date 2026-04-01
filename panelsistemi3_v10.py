@@ -6326,7 +6326,8 @@ def create_app():
             return out
 
         vids = sorted({str(m.get("video_id") or "").strip() for m in out if (m.get("video_id") or "").strip()})
-        ts_map = {}
+        ts_map: Dict[Tuple[str, str], int] = {}
+        ts_video_live_map: Dict[str, int] = {}
         if vids:
             q_marks = ",".join(["?"] * len(vids))
             b_rows = db_exec(
@@ -6336,8 +6337,20 @@ def create_app():
                 tuple(vids), fetch="all"
             ) or []
             ts_map = {
-                (str(r["video_id"]), str(r["source_type"] or "")): int(r["min_ts"] or 0)
+                (str(r["video_id"]), str(r["source_type"] or "").strip().lower()): int(r["min_ts"] or 0)
                 for r in b_rows
+            }
+            live_rows = db_exec(
+                f"SELECT video_id, MIN(timestamp) AS min_live_ts"
+                f" FROM messages"
+                f" WHERE video_id IN ({q_marks}) AND timestamp>0"
+                f" AND source_type IN ('replay_chat','live_chat','live','stream')"
+                f" GROUP BY video_id",
+                tuple(vids), fetch="all"
+            ) or []
+            ts_video_live_map = {
+                str(r["video_id"]): int(r["min_live_ts"] or 0)
+                for r in live_rows if int(r.get("min_live_ts") or 0) > 0
             }
 
         for m in out:
@@ -6368,16 +6381,19 @@ def create_app():
             except (TypeError, ValueError):
                 raw_offset_ms = -1
 
-            min_ts = ts_map.get((vid, str(m.get("source_type") or "")), 0)
+            src_norm = str(m.get("source_type") or "").strip().lower()
+            min_ts = ts_map.get((vid, src_norm), 0)
+            if min_ts <= 0 and src_norm in ("replay_chat", "live_chat", "live", "stream"):
+                min_ts = ts_video_live_map.get(vid, 0)
             secs = _estimate_watch_seconds(
                 ts=m.get("timestamp") or 0,
                 video_date=vdt,
                 min_ts=min_ts,
-                source_type=str(m.get("source_type") or ""),
+                source_type=src_norm,
                 video_offset_ms=raw_offset_ms,
             )
             m["watch_seconds"] = int(secs)
-            m["watch_url"] = f"https://youtu.be/{vid}?t={int(secs)}" if secs > 0 else f"https://youtu.be/{vid}"
+            m["watch_url"] = f"https://youtu.be/{vid}?t={int(secs)}s"
 
         return out
 
@@ -7094,7 +7110,7 @@ def create_app():
     @app.route("/api/user/<path:author>/messages")
     def api_user_messages(author):
         rows=get_user_msgs(author)
-        return jsonify({"messages":rows[:200]})
+        return jsonify({"messages":_attach_watch_links(rows[:200])})
 
     @app.route("/api/user/<path:author>/messages/pdf")
     def api_user_messages_pdf(author):
