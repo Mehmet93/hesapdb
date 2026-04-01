@@ -549,6 +549,14 @@ def init_db():
             chat_count INTEGER DEFAULT 0,
             scraped_at INTEGER DEFAULT (strftime('%s','now'))
         );
+        CREATE TABLE IF NOT EXISTS nlp_scan_progress(
+            video_id TEXT PRIMARY KEY,
+            status TEXT,
+            comment_count INTEGER DEFAULT 0,
+            chat_count INTEGER DEFAULT 0,
+            saved_count INTEGER DEFAULT 0,
+            updated_at INTEGER DEFAULT (strftime('%s','now'))
+        );
         CREATE TABLE IF NOT EXISTS rag_cache(
             id INTEGER PRIMARY KEY AUTOINCREMENT, query_hash TEXT UNIQUE,
             query TEXT, response TEXT,
@@ -653,6 +661,16 @@ def upsert_message(msg: dict):
                   msg.get("script",""),msg.get("source_type","comment"),
                   int(msg.get("is_live",False)),
                   int(msg.get("video_offset_ms", -1))))
+
+def upsert_nlp_scan_progress(video_id: str, status: str,
+                             comment_count: int = 0, chat_count: int = 0,
+                             saved_count: int = 0):
+    db_exec(
+        "INSERT OR REPLACE INTO nlp_scan_progress"
+        " (video_id,status,comment_count,chat_count,saved_count,updated_at)"
+        " VALUES(?,?,?,?,?,strftime('%s','now'))",
+        (video_id, status, int(comment_count or 0), int(chat_count or 0), int(saved_count or 0))
+    )
 
 def upsert_profile(author: str, upd: dict):
     if not db_exec("SELECT 1 FROM user_profiles WHERE author=?", (author,), fetch="one"):
@@ -2208,7 +2226,8 @@ _NLP_CHAT_CATEGORIES = [
     "neutral chat message",
 ]
 
-def nlp_filter_messages(raw_msgs: List[Dict], batch_size: int = 50) -> List[Dict]:
+def nlp_filter_messages(raw_msgs: List[Dict], batch_size: int = 50,
+                        video_id: str = "") -> List[Dict]:
     """
     NLP ile mesajları filtrele:
     - Spam/bot mesajları temizle
@@ -2244,7 +2263,8 @@ def nlp_filter_messages(raw_msgs: List[Dict], batch_size: int = 50) -> List[Dict
                 except: pass
             filtered.append(msg)
     kept = [m for m in filtered if not m.get("_nlp_filtered", False)]
-    log.info("NLP filtre: %d → %d mesaj kaldı", len(raw_msgs), len(kept))
+    vid_tag = f" [{video_id}]" if video_id else ""
+    log.info("NLP filtre%s: %d → %d mesaj kaldı", vid_tag, len(raw_msgs), len(kept))
     return kept
 
 def nlp_cluster_chat(msgs: List[Dict], eps: float = 0.35,
@@ -2409,6 +2429,7 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
     raw_msgs = _chat_msgs + _comment_msgs
 
     if not raw_msgs:
+        upsert_nlp_scan_progress(video_id, "no_data", len(_comment_msgs), len(_chat_msgs), 0)
         log.info("NLP analiz: %s için veri bulunamadı (kaynak=%s) — atlanıyor",
                  video_id, src_label)
         return {"video_id": video_id, "status": "no_data", "messages": 0,
@@ -2416,7 +2437,7 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
 
     # 2. NLP filtresi
     if filter_spam:
-        filtered = nlp_filter_messages(raw_msgs)
+        filtered = nlp_filter_messages(raw_msgs, video_id=video_id)
     else:
         filtered = raw_msgs
 
@@ -2486,13 +2507,15 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
         "topics":            topics,
         "threat_users":      analyzed[:20],
     }
+    upsert_nlp_scan_progress(video_id, "done", len(_comment_msgs), len(_chat_msgs), saved)
     log.info("✅ NLP Replay Chat tamamlandı: %s → %d mesaj, %d tehdit",
              video_id, saved, len(coordinated))
     return result
 
 def nlp_full_channel_scan(channel_url: str = None,
                            date_from: str = None,
-                           date_to:   str = None) -> Dict:
+                           date_to:   str = None,
+                           resume: bool = True) -> Dict:
     """
     NLP tabanlı tam kanal taraması.
     HEM /videos (normal video yorumları) HEM /streams (canlı yayın tekrarları)
@@ -2506,9 +2529,31 @@ def nlp_full_channel_scan(channel_url: str = None,
     log.info("🤖 NLP Tam Kanal Taraması: %s (%s → %s)",
              channel_url, date_from, date_to)
 
-    videos = ytdlp_list_videos(channel_url, date_from, date_to)
-    if not videos:
+    videos_all = ytdlp_list_videos(channel_url, date_from, date_to)
+    if not videos_all:
         return {"status":"no_videos","channel":channel_url}
+
+    videos = videos_all
+    skipped_completed = 0
+    if resume:
+        done_rows = db_exec(
+            "SELECT video_id FROM nlp_scan_progress WHERE status IN ('done','no_data')",
+            fetch="all"
+        ) or []
+        done_ids = {r["video_id"] for r in done_rows}
+        if done_ids:
+            videos = [v for v in videos_all if v.get("video_id") not in done_ids]
+            skipped_completed = len(videos_all) - len(videos)
+            log.info("NLP resume aktif: %d video atlandı (zaten tamamlanmış)", skipped_completed)
+
+    if not videos:
+        return {
+            "status": "all_completed",
+            "channel": channel_url,
+            "videos_scanned": 0,
+            "skipped_completed": skipped_completed,
+            "total_videos": len(videos_all),
+        }
 
     all_results = []
     global_coordinated: List[Dict] = []
@@ -2572,6 +2617,8 @@ def nlp_full_channel_scan(channel_url: str = None,
         "channel":            channel_url,
         "date_range":         f"{date_from} → {date_to}",
         "videos_scanned":     len(videos),
+        "total_videos":       len(videos_all),
+        "skipped_completed":  skipped_completed,
         "videos_with_chat":   sum(1 for r in all_results if r.get("status")=="ok"),
         "total_messages":     sum(r.get("filtered_messages",0) for r in all_results),
         "coordinated_threats":len(global_coordinated),
@@ -7591,9 +7638,10 @@ def create_app():
         channel_url = _normalize_channel_url_input(raw_channel) or CFG["channel_url"]
         date_from   = (request.form.get("date_from")   or "").strip() or CFG.get("date_from","2023-01-01")
         date_to     = (request.form.get("date_to")     or "").strip() or CFG.get("date_to","2026-12-31")
+        resume      = (request.form.get("resume")      or "1").strip() != "0"
         def _bg():
             try:
-                result = nlp_full_channel_scan(channel_url, date_from, date_to)
+                result = nlp_full_channel_scan(channel_url, date_from, date_to, resume=resume)
                 if _sio:
                     try:
                         # Büyük payload'ı küçült
