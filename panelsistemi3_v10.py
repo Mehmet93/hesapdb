@@ -2085,9 +2085,8 @@ def _scrape_one_video(vid: Dict, idx: int, total_count: int,
                        emit_fn=None) -> Tuple[int, int, int]:
     """
     Tek bir video için hem yorumları hem canlı chat'i çek.
-    source_type:
-      - /streams'ten gelen → "stream"  (yorum + replay chat)
-      - /videos'tan gelen  → "comment" (sadece yorum; live chat genelde yok)
+    Tüm videolarda HEM yorum HEM replay/live chat kontrol edilir.
+    Böylece video /videos listesinden gelmiş olsa bile replay_chat kaçmaz.
     Dönüş: (comment_count, chat_count, saved_count)
     """
     vid_id = vid["video_id"]
@@ -2095,7 +2094,8 @@ def _scrape_one_video(vid: Dict, idx: int, total_count: int,
     date   = vid.get("video_date", "")
     src    = vid.get("source_url", "")
 
-    # Kaynak URL'ye göre tip belirle (hard-coding yok)
+    # Kaynak URL'ye göre yorum etiketi belirle (stream videolarda source_type=stream)
+    # Not: Chat çekimi artık kaynak tipinden bağımsız, tüm videolarda denenir.
     is_stream_source = "/streams" in src or "/live" in src
 
     if emit_fn:
@@ -2116,12 +2116,13 @@ def _scrape_one_video(vid: Dict, idx: int, total_count: int,
     except Exception as e:
         log.warning("[%d/%d] %s yorum hatası: %s", idx, total_count, vid_id, e)
 
-    # Canlı chat: yalnızca stream kaynağından gelen videoları dene
-    if is_stream_source:
-        try:
-            chats = ytdlp_live_chat(vid_id, title, date)
-        except Exception as e:
-            log.warning("[%d/%d] %s live chat hatası: %s", idx, total_count, vid_id, e)
+    # Replay/live chat: TÜM videolarda dene.
+    # Bu sayede /videos kaynağından gelen ama canlı yayın kaydı olan videolarda
+    # replay_chat + comment birlikte çekilir.
+    try:
+        chats = ytdlp_live_chat(vid_id, title, date)
+    except Exception as e:
+        log.warning("[%d/%d] %s live chat hatası: %s", idx, total_count, vid_id, e)
 
     all_msgs = comments + chats
     saved = 0
