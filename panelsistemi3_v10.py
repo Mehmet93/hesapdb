@@ -700,6 +700,55 @@ def get_user_msgs(author: str) -> List[Dict]:
                    (author,), fetch="all")
     return [dict(r) for r in rows] if rows else []
 
+def backfill_chat_current_time_offsets() -> dict:
+    """
+    Program her açıldığında replay/live/stream chat mesajlarının
+    video_offset_ms alanını DB üzerinde yeniden dağıtır.
+    NLP yeniden çalıştırılmaz; yalnızca mevcut timestamp verisinden türetilir.
+    """
+    chat_sources = ("replay_chat", "live_chat", "live", "stream", "stream_chat")
+    q = ",".join(["?"] * len(chat_sources))
+    rows = db_exec(
+        "SELECT video_id, MIN(timestamp) AS min_ts, COUNT(*) AS cnt"
+        f" FROM messages WHERE deleted=0 AND timestamp>0 AND source_type IN ({q})"
+        " GROUP BY video_id",
+        chat_sources, fetch="all"
+    ) or []
+
+    videos_updated = 0
+    msgs_updated = 0
+    for r in rows:
+        vid = str(r.get("video_id") or "").strip()
+        min_ts = int(r.get("min_ts") or 0)
+        if not vid or min_ts <= 0:
+            continue
+        try:
+            db_exec(
+                "UPDATE messages"
+                " SET video_offset_ms = CASE"
+                "   WHEN timestamp >= ? THEN (timestamp - ?) * 1000"
+                "   ELSE 0 END"
+                " WHERE deleted=0 AND video_id=? AND timestamp>0"
+                f" AND source_type IN ({q})",
+                (min_ts, min_ts, vid, *chat_sources),
+            )
+            videos_updated += 1
+            msgs_updated += int(r.get("cnt") or 0)
+        except Exception as e:
+            log.warning("video_offset_ms backfill hatası %s: %s", vid, e)
+
+    if rows:
+        sample = rows[0]
+        try:
+            first_ts = int(sample.get("min_ts") or 0)
+            first_dt = datetime.fromtimestamp(first_ts).strftime("%m/%d/%Y, %I:%M:%S %p")
+            log.info("⏱ replay-chat referans zamanı: %s (%s)", first_dt, sample.get("video_id"))
+        except Exception:
+            pass
+    log.info("⏱ chat current_time dağıtımı tamamlandı: %d video / ~%d mesaj",
+             videos_updated, msgs_updated)
+    return {"videos_updated": videos_updated, "messages_updated": msgs_updated}
+
 # ── ChromaDB ─────────────────────────────────────────────────────────────────
 _chroma_client = _ch_msgs = _ch_users = None
 
@@ -1833,9 +1882,21 @@ def _estimate_watch_seconds(ts: int, video_date: str = "",
     if ts <= 0:
         return 0
 
-    # Öncelik 2 — replay/live chat için min_ts kullan (tahmini)
-    if min_ts and min_ts >= 1_000_000_000 and source_type in ("replay_chat", "live_chat", "live"):
-        return max(0, ts - int(min_ts))
+    # Öncelik 2 — replay/live/stream chat için min_ts kullan (tahmini)
+    # NOT: min_ts hem mutlak epoch saniyesi hem de relatif saniye olabilir.
+    # Bu yüzden epoch eşiği zorunluluğu kaldırıldı.
+    chat_sources = ("replay_chat", "live_chat", "live", "stream", "stream_chat")
+    if min_ts and source_type in chat_sources:
+        try:
+            min_ts_i = int(min_ts)
+        except Exception:
+            min_ts_i = 0
+        if min_ts_i > 0:
+            if ts >= min_ts_i:
+                return max(0, ts - min_ts_i)
+            # ts relatif ama min_ts daha büyük/bozuksa ts'yi doğrudan kabul et
+            if ts < 1_000_000_000:
+                return max(0, ts)
 
     # Öncelik 3 — zaten relatif saniye
     if ts < 1_000_000_000:
@@ -6326,7 +6387,8 @@ def create_app():
             return out
 
         vids = sorted({str(m.get("video_id") or "").strip() for m in out if (m.get("video_id") or "").strip()})
-        ts_map = {}
+        ts_map: Dict[Tuple[str, str], int] = {}
+        ts_video_live_map: Dict[str, int] = {}
         if vids:
             q_marks = ",".join(["?"] * len(vids))
             b_rows = db_exec(
@@ -6336,8 +6398,20 @@ def create_app():
                 tuple(vids), fetch="all"
             ) or []
             ts_map = {
-                (str(r["video_id"]), str(r["source_type"] or "")): int(r["min_ts"] or 0)
+                (str(r["video_id"]), str(r["source_type"] or "").strip().lower()): int(r["min_ts"] or 0)
                 for r in b_rows
+            }
+            live_rows = db_exec(
+                f"SELECT video_id, MIN(timestamp) AS min_live_ts"
+                f" FROM messages"
+                f" WHERE video_id IN ({q_marks}) AND timestamp>0"
+                f" AND source_type IN ('replay_chat','live_chat','live','stream','stream_chat')"
+                f" GROUP BY video_id",
+                tuple(vids), fetch="all"
+            ) or []
+            ts_video_live_map = {
+                str(r["video_id"]): int(r["min_live_ts"] or 0)
+                for r in live_rows if int(r.get("min_live_ts") or 0) > 0
             }
 
         for m in out:
@@ -6368,16 +6442,19 @@ def create_app():
             except (TypeError, ValueError):
                 raw_offset_ms = -1
 
-            min_ts = ts_map.get((vid, str(m.get("source_type") or "")), 0)
+            src_norm = str(m.get("source_type") or "").strip().lower()
+            min_ts = ts_map.get((vid, src_norm), 0)
+            if min_ts <= 0 and src_norm in ("replay_chat", "live_chat", "live", "stream", "stream_chat"):
+                min_ts = ts_video_live_map.get(vid, 0)
             secs = _estimate_watch_seconds(
                 ts=m.get("timestamp") or 0,
                 video_date=vdt,
                 min_ts=min_ts,
-                source_type=str(m.get("source_type") or ""),
+                source_type=src_norm,
                 video_offset_ms=raw_offset_ms,
             )
             m["watch_seconds"] = int(secs)
-            m["watch_url"] = f"https://youtu.be/{vid}?t={int(secs)}" if secs > 0 else f"https://youtu.be/{vid}"
+            m["watch_url"] = f"https://youtu.be/{vid}?t={int(secs)}s"
 
         return out
 
@@ -7094,7 +7171,7 @@ def create_app():
     @app.route("/api/user/<path:author>/messages")
     def api_user_messages(author):
         rows=get_user_msgs(author)
-        return jsonify({"messages":rows[:200]})
+        return jsonify({"messages":_attach_watch_links(rows[:200])})
 
     @app.route("/api/user/<path:author>/messages/pdf")
     def api_user_messages_pdf(author):
@@ -7921,6 +7998,7 @@ def bootstrap():
     log.info("═"*60)
     Path(CFG["data_dir"]).mkdir(parents=True,exist_ok=True)
     init_db()
+    backfill_chat_current_time_offsets()
     init_chroma()
     # TF-IDF ile mevcut mesajları yükle
     rows=db_exec("SELECT message FROM messages LIMIT 10000",fetch="all") or []
