@@ -4388,10 +4388,13 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
   <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
     <input class="inp" id="mq" placeholder="Mesajda ara..." oninput="debMsg()" style="flex:1;min-width:160px">
     <input class="inp" id="mauth" placeholder="@kullanıcı..." oninput="debMsg()" style="width:140px">
-    <select class="inp" id="msrc" onchange="loadMsgs(1)">
+    <select class="inp" id="msrc" onchange="onMsgSourceChange()">
       <option value="">Tüm Kaynaklar</option>
       <option value="stream">Stream</option><option value="replay_chat">Replay Chat</option>
       <option value="live">Canlı</option><option value="comment">Yorum</option>
+    </select>
+    <select class="inp" id="mreplay" onchange="loadMsgs(1)" style="min-width:280px;display:none" title="YouTube ID + Video adına göre replay/chat filtresi">
+      <option value="">🎬 Replay Video (YouTube ID + İsim)</option>
     </select>
     <span id="mcnt" style="color:var(--tx2);font-size:11px"></span>
   </div>
@@ -4445,6 +4448,7 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
             <option value="4">4x</option>
           </select>
           <span id="replay-meta" style="font-size:11px;color:var(--tx2);margin-left:auto"></span>
+          <button class="btn ghost" id="replay-pdf-btn" onclick="exportReplayWindowPDF()" disabled title="Seçili sohbet penceresinin tam PDF çıktısı">📄 Tam Sayfa PDF</button>
         </div>
         <div id="replay-stream" style="max-height:340px;overflow-y:auto"></div>
       </div>
@@ -4630,6 +4634,7 @@ let _replayFlagCache = {};        // video_id+date → flagged_users[]
 const CLR = {G:'#2ECC71',Y:'#F1C40F',O:'#E67E22',R:'#E74C3C',C:'#8B0000',B:'#3498DB',P:'#9B59B6'};
 const LVL2CLS = {GREEN:'G',YELLOW:'Y',ORANGE:'O',RED:'R',CRIMSON:'C',BLUE:'B',PURPLE:'P'};
 let msgTimer = null, gsTimer = null;
+let _replayMessageWindowOptionsLoaded = false;
 
 function status(msg,ms=0){ $('#status').text(msg); if(ms) setTimeout(()=>$('#status').text(''),ms); }
 function nav(name,el){
@@ -4638,7 +4643,7 @@ function nav(name,el){
   if(name==='dashboard') loadDash();
   else if(name==='users') loadUsers(1);
   else if(name==='ban-correlation') initBannedCorrelationTab();
-  else if(name==='messages'){ initMsgYears(); loadMsgs(1); }
+  else if(name==='messages'){ initMsgYears(); loadReplayMessageWindows(); onMsgSourceChange(); loadMsgs(1); }
   else if(name==='replay-flow') loadReplayWindows(false);  // önbellekli
   else if(name==='graph') { if(!graphLoaded) loadGraph(); }
   else if(name==='stats') loadStats();
@@ -5341,10 +5346,39 @@ function clearMsgDate(){
   loadMsgs(1);
 }
 
+function onMsgSourceChange(){
+  const src = $('#msrc').val();
+  if(src==='replay_chat' || src==='live' || src==='stream'){
+    $('#mreplay').show();
+    loadReplayMessageWindows();
+  }else{
+    $('#mreplay').hide().val('');
+  }
+  loadMsgs(1);
+}
+
+function loadReplayMessageWindows(force=false){
+  if(!force && _replayMessageWindowOptionsLoaded) return;
+  $.get('/api/messages/replay-options', function(d){
+    const sel = $('#mreplay');
+    const current = sel.val();
+    sel.find('option:not(:first)').remove();
+    (d.videos||[]).forEach(v=>{
+      const vid = v.video_id || '';
+      const title = (v.title || vid || 'Video').replace(/[<>]/g,'');
+      const cnt = v.message_count || 0;
+      sel.append(`<option value="${vid}">${vid} — ${title} (${cnt} mesaj)</option>`);
+    });
+    if(current) sel.val(current);
+    _replayMessageWindowOptionsLoaded = true;
+  });
+}
+
 function loadMsgs(p){
   if(p) page.msgs=p;
   const params={page:page.msgs,size:pgSize,
-    q:$('#mq').val(),author:$('#mauth').val(),source:$('#msrc').val()};
+    q:$('#mq').val(),author:$('#mauth').val(),source:$('#msrc').val(),
+    replay_video_id: $('#mreplay:visible').val() || ''};
   const y=$('#mfyear').val(), mo=$('#mfmonth').val(), d=$('#mfday').val();
   if(y) params.year=y;
   if(mo) params.month=mo;
@@ -5471,6 +5505,7 @@ function openReplayWindow(idx){
   replayState.messages = [];
   replayState.idx = 0;
   replayState.lastTs = 0;
+  $('#replay-pdf-btn').prop('disabled', false);
 
   const ckey = _replayCacheKey(win);
 
@@ -5597,6 +5632,42 @@ function _renderFlaggedList(flagged, win){
     </div>`;
   });
   panel.html(h);
+}
+
+function exportReplayWindowPDF(){
+  const win = replayState.active;
+  if(!win){
+    alert('Önce soldan bir sohbet penceresi seçin.');
+    return;
+  }
+  const params = new URLSearchParams({
+    video_id: win.video_id || '',
+    window_date: win.window_date || ''
+  });
+  status('Seçili sohbet penceresi için PDF hazırlanıyor...');
+  fetch('/api/replay/window/pdf?' + params.toString())
+    .then(async res => {
+      if(!res.ok){
+        let err = 'PDF üretilemedi';
+        try{ const body = await res.json(); if(body && (body.error || body.message)) err = body.error || body.message; }catch(_e){}
+        throw new Error(err);
+      }
+      return res.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const safeVid = (win.video_id || 'replay').replace(/[^a-zA-Z0-9._-]/g,'_');
+      const safeDate = (win.window_date || '').replace(/[^0-9]/g,'');
+      a.href = url;
+      a.download = `replay_window_${safeVid}_${safeDate||'all'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      status('✅ Sohbet penceresi PDF indirildi', 3000);
+    })
+    .catch(err => status('❌ ' + (err?.message || 'PDF üretilemedi'), 5000));
 }
 
 function setReplaySpeed(v){
@@ -7098,12 +7169,31 @@ def create_app():
         ) or []
         return jsonify({"years": [r["yr"] for r in rows if r["yr"]]})
 
+    @app.route("/api/messages/replay-options")
+    def api_messages_replay_options():
+        rows = db_exec(
+            "SELECT COALESCE(video_id,'') AS video_id, MAX(COALESCE(title,'')) AS title, COUNT(*) AS message_count"
+            " FROM messages"
+            " WHERE deleted=0 AND COALESCE(video_id,'')<>''"
+            " AND source_type IN ('replay_chat','live','stream')"
+            " GROUP BY COALESCE(video_id,'')"
+            " ORDER BY message_count DESC, video_id DESC",
+            fetch="all"
+        ) or []
+        videos = [{
+            "video_id": (r.get("video_id") or "").strip(),
+            "title": (r.get("title") or "").strip(),
+            "message_count": int(r.get("message_count") or 0),
+        } for r in rows if (r.get("video_id") or "").strip()]
+        return jsonify({"videos": videos})
+
     # ── Messages ──────────────────────────────────────────────────────────────
     @app.route("/api/messages")
     def api_messages():
         p=int(request.args.get("page",1)); sz=int(request.args.get("size",50))
         q=request.args.get("q",""); auth=request.args.get("author","")
         src=request.args.get("source",""); off=(p-1)*sz
+        replay_video_id=(request.args.get("replay_video_id","") or "").strip()
         year=request.args.get("year",""); month=request.args.get("month",""); day=request.args.get("day","")
         wh="WHERE m.deleted=0"; prms=[]
         if q:
@@ -7117,6 +7207,9 @@ def create_app():
             except: wh+=" AND m.message LIKE ?"; prms.append(f"%{q}%")
         if auth: wh+=" AND m.author LIKE ?"; prms.append(f"%{auth}%")
         if src:  wh+=" AND m.source_type=?"; prms.append(src)
+        if replay_video_id:
+            wh += " AND m.video_id=?"
+            prms.append(replay_video_id)
         # Tarih filtresi — timestamp (Unix) → UTC tarih karşılaştırması
         if year and month and day:
             try:
@@ -7327,6 +7420,116 @@ def create_app():
         ) or []
         out = _attach_watch_links(rows)
         return jsonify({"messages": out, "total": len(out)})
+
+
+    @app.route("/api/replay/window/pdf")
+    def api_replay_window_pdf():
+        try:
+            from io import BytesIO
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import mm
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+            from xml.sax.saxutils import escape as xml_escape
+            from flask import send_file
+
+            vid = (request.args.get("video_id", "") or "").strip()
+            win_date = (request.args.get("window_date", "") or "").strip()
+
+            wh = ["m.deleted=0"]
+            prms: List = []
+            if vid:
+                wh.append("m.video_id=?")
+                prms.append(vid)
+            if win_date:
+                wh.append("COALESCE(m.video_date,'')=?")
+                prms.append(win_date)
+            where_sql = " AND ".join(wh)
+
+            rows = db_exec(
+                "SELECT m.*, up.threat_level, up.threat_score"
+                " FROM messages m LEFT JOIN user_profiles up ON m.author=up.author"
+                f" WHERE {where_sql}"
+                " ORDER BY m.timestamp ASC LIMIT 6000",
+                tuple(prms), fetch="all"
+            ) or []
+            if not rows:
+                return jsonify({"error": "Seçilen sohbet penceresi için mesaj bulunamadı"}), 404
+
+            video_title = (next((r.get("title") for r in rows if (r.get("title") or "").strip()), "") or "").strip()
+            buf = BytesIO()
+            doc = SimpleDocTemplate(buf, pagesize=A4,
+                                    leftMargin=14*mm, rightMargin=14*mm,
+                                    topMargin=12*mm, bottomMargin=12*mm)
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle("ReplayPdfTitle", parent=styles["Heading1"],
+                                         fontSize=14, leading=17, textColor=colors.HexColor("#111827"))
+            meta_style = ParagraphStyle("ReplayPdfMeta", parent=styles["Normal"],
+                                        fontSize=9, leading=12, textColor=colors.HexColor("#4b5563"))
+            cell_style = ParagraphStyle("ReplayPdfCell", parent=styles["Normal"],
+                                        fontSize=8.5, leading=10)
+
+            story = [
+                Paragraph("Sohbet Penceresi Tam Sayfa PDF Raporu", title_style),
+                Spacer(1, 4),
+                Paragraph(f"Video ID: {xml_escape(vid or '—')} · Video: {xml_escape(video_title or '—')}", meta_style),
+                Paragraph(f"Pencere Tarihi: {xml_escape(win_date or '—')} · Mesaj: {len(rows)}", meta_style),
+                Paragraph(f"Oluşturulma: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", meta_style),
+                Spacer(1, 8),
+            ]
+
+            data = [[
+                Paragraph("<b>Zaman</b>", cell_style),
+                Paragraph("<b>Kullanıcı</b>", cell_style),
+                Paragraph("<b>Kaynak</b>", cell_style),
+                Paragraph("<b>Mesaj</b>", cell_style),
+            ]]
+
+            for r in rows:
+                ts = r.get("timestamp")
+                if ts:
+                    try:
+                        ts_str = datetime.utcfromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        ts_str = str(ts)
+                else:
+                    ts_str = "—"
+                author = xml_escape(str(r.get("author") or "—"))
+                src = xml_escape(str(r.get("source_type") or "—"))
+                msg = xml_escape(str(r.get("message") or "—"))
+                data.append([
+                    Paragraph(xml_escape(ts_str), cell_style),
+                    Paragraph(author, cell_style),
+                    Paragraph(src, cell_style),
+                    Paragraph(msg, cell_style),
+                ])
+
+            tbl = Table(data, colWidths=[31*mm, 28*mm, 22*mm, 96*mm], repeatRows=1)
+            tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#f3f4f6")),
+                ("TEXTCOLOR", (0,0), (-1,0), colors.HexColor("#111827")),
+                ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+                ("FONTSIZE", (0,0), (-1,-1), 8),
+                ("VALIGN", (0,0), (-1,-1), "TOP"),
+                ("GRID", (0,0), (-1,-1), 0.25, colors.HexColor("#d1d5db")),
+                ("LEFTPADDING", (0,0), (-1,-1), 4),
+                ("RIGHTPADDING", (0,0), (-1,-1), 4),
+                ("TOPPADDING", (0,0), (-1,-1), 3),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+            ]))
+            story.append(tbl)
+            doc.build(story)
+            buf.seek(0)
+
+            safe_vid = re.sub(r"[^a-zA-Z0-9._-]+", "_", vid or "replay")
+            safe_date = re.sub(r"[^0-9]+", "", win_date or "") or "all"
+            fname = f"replay_window_{safe_vid}_{safe_date}.pdf"
+            return send_file(buf, mimetype="application/pdf",
+                             as_attachment=True, download_name=fname)
+        except Exception as e:
+            log.exception("Replay window PDF error: %s", e)
+            return jsonify({"error": str(e)}), 500
 
     # ── Analysis ──────────────────────────────────────────────────────────────
     @app.route("/api/analyze/user", methods=["POST"])
