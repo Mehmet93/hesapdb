@@ -7431,8 +7431,6 @@ def create_app():
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib.units import mm
             from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-            from reportlab.pdfbase import pdfmetrics
-            from reportlab.pdfbase.ttfonts import TTFont
             from xml.sax.saxutils import escape as xml_escape
             from flask import send_file
 
@@ -7460,52 +7458,32 @@ def create_app():
                 return jsonify({"error": "Seçilen sohbet penceresi için mesaj bulunamadı"}), 404
 
             video_title = (next((r.get("title") for r in rows if (r.get("title") or "").strip()), "") or "").strip()
-
-            # Unicode karakter desteği için (Türkçe, Kiril, semboller vb.)
-            # Mümkünse DejaVu Sans kullan; yoksa varsayılan Helvetica'ya düş.
-            font_name = "Helvetica"
-            for fp in (
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/local/share/fonts/DejaVuSans.ttf",
-                str(Path.home() / ".fonts/DejaVuSans.ttf"),
-            ):
-                if Path(fp).exists():
-                    try:
-                        pdfmetrics.registerFont(TTFont("DejaVuSans", fp))
-                        font_name = "DejaVuSans"
-                        break
-                    except Exception:
-                        pass
-
             buf = BytesIO()
             doc = SimpleDocTemplate(buf, pagesize=A4,
                                     leftMargin=14*mm, rightMargin=14*mm,
                                     topMargin=12*mm, bottomMargin=12*mm)
             styles = getSampleStyleSheet()
             title_style = ParagraphStyle("ReplayPdfTitle", parent=styles["Heading1"],
-                                         fontName=font_name,
                                          fontSize=14, leading=17, textColor=colors.HexColor("#111827"))
             meta_style = ParagraphStyle("ReplayPdfMeta", parent=styles["Normal"],
-                                        fontName=font_name,
                                         fontSize=9, leading=12, textColor=colors.HexColor("#4b5563"))
             cell_style = ParagraphStyle("ReplayPdfCell", parent=styles["Normal"],
-                                        fontName=font_name,
                                         fontSize=8.5, leading=10)
 
             story = [
-                Paragraph("Chat Window Full-Page PDF Report", title_style),
+                Paragraph("Sohbet Penceresi Tam Sayfa PDF Raporu", title_style),
                 Spacer(1, 4),
-                Paragraph(f"Video ID: {xml_escape(vid or '—')} · Video Title: {xml_escape(video_title or '—')}", meta_style),
-                Paragraph(f"Window Date: {xml_escape(win_date or '—')} · Messages: {len(rows)}", meta_style),
-                Paragraph(f"Generated At: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", meta_style),
+                Paragraph(f"Video ID: {xml_escape(vid or '—')} · Video: {xml_escape(video_title or '—')}", meta_style),
+                Paragraph(f"Pencere Tarihi: {xml_escape(win_date or '—')} · Mesaj: {len(rows)}", meta_style),
+                Paragraph(f"Oluşturulma: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", meta_style),
                 Spacer(1, 8),
             ]
 
             data = [[
-                Paragraph("<b>Time</b>", cell_style),
-                Paragraph("<b>User</b>", cell_style),
-                Paragraph("<b>Source</b>", cell_style),
-                Paragraph("<b>Message</b>", cell_style),
+                Paragraph("<b>Zaman</b>", cell_style),
+                Paragraph("<b>Kullanıcı</b>", cell_style),
+                Paragraph("<b>Kaynak</b>", cell_style),
+                Paragraph("<b>Mesaj</b>", cell_style),
             ]]
 
             for r in rows:
@@ -7531,7 +7509,7 @@ def create_app():
             tbl.setStyle(TableStyle([
                 ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#f3f4f6")),
                 ("TEXTCOLOR", (0,0), (-1,0), colors.HexColor("#111827")),
-                ("FONTNAME", (0,0), (-1,0), font_name),
+                ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
                 ("FONTSIZE", (0,0), (-1,-1), 8),
                 ("VALIGN", (0,0), (-1,-1), "TOP"),
                 ("GRID", (0,0), (-1,-1), 0.25, colors.HexColor("#d1d5db")),
