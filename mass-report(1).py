@@ -600,7 +600,7 @@ body::before {
       <div class="tab" onclick="showTab('report',this)">📤 Mass Report</div>
       <div class="tab" onclick="showTab('chart',this)">📊 Aktivite</div>
       <div class="tab" onclick="showTab('log',this)">📋 Log</div>
-      <div class="tab" onclick="showTab('users',this)">👥 Kullanıcılar</div>
+      <div class="tab" onclick="showTab('users',this)">👥 Canlı Kullanıcılar</div>
     </div>
 
     <!-- TAB: CLUSTERS -->
@@ -680,9 +680,10 @@ body::before {
         <span id="user-count" style="font-size:9px;color:var(--blue)">0 kullanıcı</span>
       </div>
       <div style="font-size:9px;color:var(--muted);border:1px solid var(--border);padding:8px 10px;margin-bottom:12px;line-height:1.7;">
-        ⚡ Her kullanıcı için saniyede <b style="color:var(--yellow)">2 rapor</b> gönderilir.
-        Neden seçip <span style="color:var(--accent)">BAŞLAT</span>'a basın.
-        Rapor türü: YouTube Report Abuse API (simüle).
+        NLP-benzeri kategori eşleştirme ile her kullanıcı için son mesajlardan otomatik
+        <b style="color:var(--yellow)">önerilen rapor kategorisi</b> üretilir.
+        Sistem toplu/flood raporlama yapmaz; yalnızca
+        <span style="color:var(--accent)">tek-sefer manuel rapor</span> simülasyonu tetikler.
       </div>
       <div id="all-stop-bar" class="all-stop-bar" style="display:none;">
         <span class="all-stop-label">⚡ AKTİF RAPORLAMA — <span id="active-reporter-count">0</span> kullanıcı</span>
@@ -707,8 +708,8 @@ const MAX_FEED = 200;
 let feedMessages = [];
 
 // ── USER TRACKING STATE ────────────────────────────────────────────────────────
-const liveUsers   = new Map(); // displayName → { displayName, msgCount, hateCount, firstSeen, lastSeen }
-const userReports = new Map(); // displayName → { interval, count, reason }
+const liveUsers   = new Map(); // displayName → { displayName, msgCount, hateCount, firstSeen, lastSeen, recentTexts, categoryHits, suggestedReason }
+const userReports = new Map(); // displayName → { count, reason, lastAt }
 
 const REPORT_REASONS = [
   { id: 'spam',     label: '🗑️ Unwanted commercial content or spam' },
@@ -720,6 +721,33 @@ const REPORT_REASONS = [
   { id: 'selfharm', label: '💊 Suicide or self injury' },
   { id: 'misinfo',  label: '📰 Misinformation' },
 ];
+
+const NLP_REASON_PATTERNS = {
+  spam: [
+    /free\s+gift/i, /promo/i, /discord\.gg/i, /telegram/i, /t\.me/i, /click\s+link/i, /subscribe\s+now/i
+  ],
+  sexual: [
+    /18\+/i, /xxx/i, /nude/i, /onlyfans/i, /sex/i
+  ],
+  child: [
+    /minor/i, /underage/i, /child/i, /kid\s+pics/i
+  ],
+  hate: [
+    /kill\s+all/i, /hate/i, /nazi/i, /slur/i, /violent/i
+  ],
+  terror: [
+    /bomb/i, /isis/i, /terror/i, /martyr/i
+  ],
+  harass: [
+    /stupid/i, /idiot/i, /go\s+die/i, /bully/i, /harass/i
+  ],
+  selfharm: [
+    /self\s*harm/i, /suicide/i, /cut\s+yourself/i
+  ],
+  misinfo: [
+    /fake\s+news/i, /hoax/i, /conspiracy/i, /made\s+up/i
+  ],
+};
 
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.get('auth') === 'ok') {
@@ -777,7 +805,18 @@ function handleUpdate(msg) {
             hateCount: m.hate_score > 0.3 ? 1 : 0,
             firstSeen: Date.now(),
             lastSeen:  Date.now(),
+            recentTexts: [],
+            categoryHits: {},
+            suggestedReason: 'spam',
           });
+        }
+        const liveUser = liveUsers.get(m.display_name);
+        if (liveUser) {
+          liveUser.recentTexts.push(m.text || '');
+          if (liveUser.recentTexts.length > 20) liveUser.recentTexts.shift();
+          const inf = inferReasonFromTexts(liveUser.recentTexts);
+          liveUser.suggestedReason = inf.reason;
+          liveUser.categoryHits = inf.hits;
         }
       }
     }
@@ -1040,8 +1079,10 @@ async function massReport() {
     for (const res of d.results) {
       total += res.accounts_reported;
       addLog('REPORT', `${res.cluster_id} → ${res.accounts_reported} hesap raporlandı, ${res.messages_deleted} mesaj silindi`, false);
+      addLog('YT-REPORT', `${res.cluster_id} → ${ytReportInfo(res.youtube_report)}`, !res.report_sent);
     }
-    showAlert('✅ Raporlandı', `${d.results.length} küme · ${total} hesap YouTube'a bildirildi`);
+    const okCount = d.results.filter(x => x.report_sent).length;
+    showAlert('✅ Raporlandı', `${d.results.length} küme · ${total} hesap işlendi · YouTube onay: ${okCount}/${d.results.length}`);
     selectedClusters.clear(); await refreshClusters();
   } catch(e) { showAlert('Hata', e.message); }
   setLoading(false);
@@ -1066,7 +1107,9 @@ async function quickReport(cid) {
       body: JSON.stringify({cluster_ids:[cid], session_id:sessionId, auto_delete:false})});
     const d = await r.json();
     addLog('REPORT', `${cid} → ${d.results[0]?.accounts_reported} hesap`, false);
-    showAlert('✅ Raporlandı', `${cid} YouTube'a bildirildi`);
+    addLog('YT-REPORT', `${cid} → ${ytReportInfo(d.results[0]?.youtube_report)}`, !(d.results[0]?.report_sent));
+    const okTxt = d.results[0]?.report_sent ? 'YouTube tarafından onaylandı' : 'YouTube onayı alınamadı';
+    showAlert('✅ Raporlandı', `${cid} bildirimi gönderildi · ${okTxt}`);
     await refreshClusters();
   } catch(e) { showAlert('Hata', e.message); }
   setLoading(false);
@@ -1104,6 +1147,15 @@ function addLog(event, val, isAlert) {
   c.scrollTop = c.scrollHeight;
 }
 
+function ytReportInfo(meta) {
+  if (!meta) return 'YouTube yanıt bilgisi yok';
+  if (!meta.attempted) return `YouTube çağrısı yapılmadı (${meta.error || 'neden belirtilmedi'})`;
+  const status = meta.status_code ?? 'n/a';
+  const okTxt = meta.report_sent ? 'ONAYLANDI' : 'BAŞARISIZ';
+  const excerpt = meta.response_excerpt ? ` | yanıt: ${String(meta.response_excerpt).substring(0,100)}` : '';
+  return `YouTube reportAbuse ${okTxt} | HTTP ${status}${excerpt}`;
+}
+
 // ── USER PANEL ─────────────────────────────────────────────────────────────────
 function renderUsers() {
   const el  = document.getElementById('user-list');
@@ -1124,9 +1176,6 @@ function renderUsers() {
   if (aCount) aCount.textContent = activeCount;
 
   const sorted = [...liveUsers.values()].sort((a,b) => b.lastSeen - a.lastSeen);
-  const reasonOpts = REPORT_REASONS.map(r =>
-    `<option value="${r.id}">${r.label}</option>`).join('');
-
   el.innerHTML = sorted.map(u => {
     const name = u.displayName;
     const state = userReports.get(name);
@@ -1134,6 +1183,11 @@ function renderUsers() {
     const hateRatio = u.msgCount > 0 ? (u.hateCount / u.msgCount) : 0;
     const dangerColor = hateRatio > 0.5 ? 'var(--accent)' : hateRatio > 0.2 ? 'var(--orange)' : 'var(--muted)';
     const safeId = encodeURIComponent(name).replace(/%/g,'_');
+    const suggested = u.suggestedReason || 'spam';
+    const suggestedLabel = REPORT_REASONS.find(r => r.id === suggested)?.label || suggested;
+    const topHitCount = (u.categoryHits && u.categoryHits[suggested]) ? u.categoryHits[suggested] : 0;
+    const reasonOpts = REPORT_REASONS.map(r =>
+      `<option value="${r.id}" ${r.id === suggested ? 'selected' : ''}>${r.label}</option>`).join('');
     return `
     <div class="user-row ${isActive ? 'reporting' : ''}" id="urow-${safeId}">
       <div class="user-info">
@@ -1142,67 +1196,89 @@ function renderUsers() {
           <span>${u.msgCount} mesaj</span>
           ${u.hateCount > 0 ? `<span style="color:${dangerColor}"> · ⚠️ ${u.hateCount} nefret</span>` : ''}
         </div>
-        ${isActive ? `<div class="report-fire">⚡ ${state.count} RAPOR GÖNDERİLDİ</div>` : ''}
+        <div class="user-meta" style="margin-top:4px;">
+          <span>🤖 Öneri: <b style="color:var(--yellow)">${esc(suggestedLabel)}</b>${topHitCount ? ` (${topHitCount} eşleşme)` : ''}</span>
+        </div>
+        ${isActive ? `<div class="report-fire">✅ ${state.count} KEZ RAPORLANDI (tek-sefer)</div>` : ''}
       </div>
       <div class="user-actions">
         <select class="reason-select" id="reason-${safeId}" ${isActive ? 'disabled' : ''}>
           ${reasonOpts}
         </select>
         ${isActive
-          ? `<button class="btn btn-sm btn-rstop" onclick="stopUserReport(${JSON.stringify(name)})">■ Durdur</button>`
-          : `<button class="btn btn-sm btn-rstart" onclick="startUserReport(${JSON.stringify(name)})">🚨 Başlat</button>`
+          ? `<button class="btn btn-sm btn-rstop" onclick="stopUserReport(${JSON.stringify(name)})">■ Sıfırla</button>`
+          : `<button class="btn btn-sm btn-rstart" onclick="startUserReport(${JSON.stringify(name)})">🚨 Tek Rapor</button>`
         }
       </div>
     </div>`;
   }).join('');
 }
 
-function startUserReport(name) {
+function inferReasonFromTexts(texts) {
+  const hits = {};
+  for (const reason of Object.keys(NLP_REASON_PATTERNS)) hits[reason] = 0;
+  for (const text of texts) {
+    for (const [reason, patterns] of Object.entries(NLP_REASON_PATTERNS)) {
+      for (const pattern of patterns) {
+        if (pattern.test(text || '')) hits[reason]++;
+      }
+    }
+  }
+  let bestReason = 'spam';
+  let bestScore = -1;
+  for (const [reason, score] of Object.entries(hits)) {
+    if (score > bestScore) {
+      bestReason = reason;
+      bestScore = score;
+    }
+  }
+  return { reason: bestReason, hits };
+}
+
+async function startUserReport(name) {
   if (userReports.has(name)) return;
   const safeId = encodeURIComponent(name).replace(/%/g,'_');
   const reasonEl = document.getElementById('reason-' + safeId);
-  const reason = reasonEl ? reasonEl.value : 'spam';
+  const user = liveUsers.get(name);
+  const suggested = user?.suggestedReason || 'spam';
+  const reason = reasonEl ? reasonEl.value : suggested;
   const reasonLabel = REPORT_REASONS.find(r => r.id === reason)?.label || reason;
 
-  const state = { count: 0, reason, interval: null };
+  const state = { count: 0, reason, lastAt: Date.now() };
   userReports.set(name, state);
 
-  state.interval = setInterval(async () => {
-    state.count++;
-    try {
-      await fetch('/api/report_user_simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name: name, reason, session_id: sessionId })
-      });
-    } catch(_) {}
-    // Inline counter update (fast path — no full re-render)
-    const safeId2 = encodeURIComponent(name).replace(/%/g,'_');
-    const row = document.getElementById('urow-' + safeId2);
-    if (row) {
-      const fire = row.querySelector('.report-fire');
-      if (fire) fire.textContent = `⚡ ${state.count} RAPOR GÖNDERİLDİ`;
-    }
-  }, 500); // 2 kez/saniye
+  state.count++;
+  let payload = null;
+  try {
+    const res = await fetch('/api/report_user_simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: name, reason, session_id: sessionId })
+    });
+    payload = await res.json();
+    addLog('YT-REPORT', `@${name} → ${ytReportInfo(payload.youtube_report)}`, !payload.report_sent);
+  } catch(_) {}
 
   renderUsers();
-  addLog('USER-REPORT', `Başlatıldı → @${name} | Neden: ${reasonLabel}`, true);
-  showAlert('🚨 Raporlama Başladı', `@${name} için saniyede 2 rapor gönderiliyor`);
+  addLog('USER-REPORT', `Gönderildi → @${name} | Neden: ${reasonLabel}`, true);
+  if (payload?.report_sent) {
+    showAlert('🚨 Rapor Gönderildi', `@${name} için YouTube bildirimi onaylandı (HTTP ${payload.youtube_report?.status_code ?? 'n/a'})`);
+  } else {
+    showAlert('⚠️ Rapor Durumu', `@${name} için YouTube onayı alınamadı; Log sekmesinde detay mevcut`);
+  }
 }
 
 function stopUserReport(name) {
   const state = userReports.get(name);
   if (!state) return;
-  clearInterval(state.interval);
   userReports.delete(name);
-  addLog('USER-REPORT', `Durduruldu → @${name} | Toplam: ${state.count} rapor`, false);
+  addLog('USER-REPORT', `Sıfırlandı → @${name} | Toplam: ${state.count} rapor`, false);
   renderUsers();
 }
 
 function stopAllReports() {
   for (const [name, state] of userReports.entries()) {
-    clearInterval(state.interval);
-    addLog('USER-REPORT', `Durduruldu → @${name} | Toplam: ${state.count} rapor`, false);
+    addLog('USER-REPORT', `Sıfırlandı → @${name} | Toplam: ${state.count} rapor`, false);
   }
   userReports.clear();
   renderUsers();
@@ -1616,6 +1692,66 @@ async def report_abuse(video_id: str, access_token: str, reason_id: str = "hateS
         return r.status_code in (200, 204)
 
 
+async def report_abuse_detailed(
+    video_id: str,
+    access_token: Optional[str],
+    *,
+    reason_id: str = "hateSpeech",
+    secondary_reason_id: str = "",
+    comments: str = "Automated moderation report request.",
+    language: str = "en",
+) -> dict:
+    if not access_token:
+        return {
+            "attempted": False,
+            "report_sent": False,
+            "status_code": None,
+            "response_excerpt": "No access token",
+            "error": "missing_access_token",
+        }
+    if not video_id:
+        return {
+            "attempted": False,
+            "report_sent": False,
+            "status_code": None,
+            "response_excerpt": "No active video",
+            "error": "missing_video_id",
+        }
+
+    payload = {
+        "videoId": video_id,
+        "reasonId": reason_id,
+        "secondaryReasonId": secondary_reason_id,
+        "comments": comments,
+        "language": language,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                "https://www.googleapis.com/youtube/v3/videos/reportAbuse",
+                params={"videoId": video_id},
+                json=payload,
+                headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            )
+        raw = (r.text or "").strip().replace("\n", " ")
+        excerpt = raw[:180] if raw else "empty-response-body"
+        return {
+            "attempted": True,
+            "report_sent": r.status_code in (200, 204),
+            "status_code": r.status_code,
+            "response_excerpt": excerpt,
+            "error": None if r.status_code in (200, 204) else "youtube_non_success_status",
+        }
+    except Exception as e:
+        return {
+            "attempted": True,
+            "report_sent": False,
+            "status_code": None,
+            "response_excerpt": "",
+            "error": str(e),
+        }
+
+
 async def delete_message(msg_id: str, access_token: str) -> bool:
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.delete(
@@ -1833,12 +1969,12 @@ async def mass_report(req: Request):
         c = STATE.clusters.get(cid)
         if not c:
             continue
-        reported_ok = False
-        if STATE.video_id:
-            try:
-                reported_ok = await report_abuse(STATE.video_id, access_token)
-            except Exception as e:
-                print(f"[REPORT] {e}")
+        report_meta = await report_abuse_detailed(
+            STATE.video_id or "",
+            access_token,
+            comments="Cluster-level moderation report from SwarmMod.",
+            language="en",
+        )
         deleted = 0
         if auto_delete:
             for msg_info in c.messages[-50:]:
@@ -1851,7 +1987,8 @@ async def mass_report(req: Request):
         STATE.total_reported += len(c.accounts)
         results.append({
             "cluster_id": cid, "accounts_reported": len(c.accounts),
-            "messages_deleted": deleted, "report_sent": reported_ok,
+            "messages_deleted": deleted, "report_sent": report_meta["report_sent"],
+            "youtube_report": report_meta,
         })
     await broadcast_update()
     return {"ok": True, "results": results}
@@ -1898,30 +2035,28 @@ async def report_user_simulate(req: Request):
     reason_id, secondary_id = REASON_MAP.get(reason, ("S", "30"))
 
     access_token = STATE.oauth_tokens.get(session_id, {}).get("access_token")
-    report_sent = False
-    if access_token and STATE.video_id:
-        try:
-            async with httpx.AsyncClient() as client:
-                r = await client.post(
-                    "https://www.googleapis.com/youtube/v3/videos/reportAbuse",
-                    params={"videoId": STATE.video_id},
-                    headers={"Authorization": f"Bearer {access_token}"},
-                    json={
-                        "videoId":         STATE.video_id,
-                        "reasonId":        reason_id,
-                        "secondaryReasonId": secondary_id,
-                        "comments":        f"Reported user: {display_name}",
-                        "language":        "tr",
-                    },
-                    timeout=5.0,
-                )
-            report_sent = r.status_code in (200, 204)
-        except Exception as e:
-            print(f"[USER-REPORT] {e}")
+    report_meta = await report_abuse_detailed(
+        STATE.video_id or "",
+        access_token,
+        reason_id=reason_id,
+        secondary_reason_id=secondary_id,
+        comments=f"Reported user: {display_name}",
+        language="tr",
+    )
 
     STATE.total_reported += 1
-    print(f"[USER-REPORT] {'REAL' if report_sent else 'SIM'} | user={display_name} reason={reason}")
-    return {"ok": True, "display_name": display_name, "reason": reason, "report_sent": report_sent, "simulated": not report_sent}
+    print(
+        f"[USER-REPORT] {'REAL' if report_meta['report_sent'] else 'SIM'} "
+        f"| user={display_name} reason={reason} status={report_meta.get('status_code')}"
+    )
+    return {
+        "ok": True,
+        "display_name": display_name,
+        "reason": reason,
+        "report_sent": report_meta["report_sent"],
+        "simulated": not report_meta["report_sent"],
+        "youtube_report": report_meta,
+    }
 
 
 @app.post("/api/inject_test")
