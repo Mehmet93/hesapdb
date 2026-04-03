@@ -600,7 +600,7 @@ body::before {
       <div class="tab" onclick="showTab('report',this)">📤 Mass Report</div>
       <div class="tab" onclick="showTab('chart',this)">📊 Aktivite</div>
       <div class="tab" onclick="showTab('log',this)">📋 Log</div>
-      <div class="tab" onclick="showTab('users',this)">👥 Kullanıcılar</div>
+      <div class="tab" onclick="showTab('users',this)">👥 Canlı Kullanıcılar</div>
     </div>
 
     <!-- TAB: CLUSTERS -->
@@ -680,9 +680,10 @@ body::before {
         <span id="user-count" style="font-size:9px;color:var(--blue)">0 kullanıcı</span>
       </div>
       <div style="font-size:9px;color:var(--muted);border:1px solid var(--border);padding:8px 10px;margin-bottom:12px;line-height:1.7;">
-        ⚡ Her kullanıcı için saniyede <b style="color:var(--yellow)">2 rapor</b> gönderilir.
-        Neden seçip <span style="color:var(--accent)">BAŞLAT</span>'a basın.
-        Rapor türü: YouTube Report Abuse API (simüle).
+        NLP-benzeri kategori eşleştirme ile her kullanıcı için son mesajlardan otomatik
+        <b style="color:var(--yellow)">önerilen rapor kategorisi</b> üretilir.
+        Sistem toplu/flood raporlama yapmaz; yalnızca
+        <span style="color:var(--accent)">tek-sefer manuel rapor</span> simülasyonu tetikler.
       </div>
       <div id="all-stop-bar" class="all-stop-bar" style="display:none;">
         <span class="all-stop-label">⚡ AKTİF RAPORLAMA — <span id="active-reporter-count">0</span> kullanıcı</span>
@@ -707,8 +708,8 @@ const MAX_FEED = 200;
 let feedMessages = [];
 
 // ── USER TRACKING STATE ────────────────────────────────────────────────────────
-const liveUsers   = new Map(); // displayName → { displayName, msgCount, hateCount, firstSeen, lastSeen }
-const userReports = new Map(); // displayName → { interval, count, reason }
+const liveUsers   = new Map(); // displayName → { displayName, msgCount, hateCount, firstSeen, lastSeen, recentTexts, categoryHits, suggestedReason }
+const userReports = new Map(); // displayName → { count, reason, lastAt }
 
 const REPORT_REASONS = [
   { id: 'spam',     label: '🗑️ Unwanted commercial content or spam' },
@@ -720,6 +721,33 @@ const REPORT_REASONS = [
   { id: 'selfharm', label: '💊 Suicide or self injury' },
   { id: 'misinfo',  label: '📰 Misinformation' },
 ];
+
+const NLP_REASON_PATTERNS = {
+  spam: [
+    /free\s+gift/i, /promo/i, /discord\.gg/i, /telegram/i, /t\.me/i, /click\s+link/i, /subscribe\s+now/i
+  ],
+  sexual: [
+    /18\+/i, /xxx/i, /nude/i, /onlyfans/i, /sex/i
+  ],
+  child: [
+    /minor/i, /underage/i, /child/i, /kid\s+pics/i
+  ],
+  hate: [
+    /kill\s+all/i, /hate/i, /nazi/i, /slur/i, /violent/i
+  ],
+  terror: [
+    /bomb/i, /isis/i, /terror/i, /martyr/i
+  ],
+  harass: [
+    /stupid/i, /idiot/i, /go\s+die/i, /bully/i, /harass/i
+  ],
+  selfharm: [
+    /self\s*harm/i, /suicide/i, /cut\s+yourself/i
+  ],
+  misinfo: [
+    /fake\s+news/i, /hoax/i, /conspiracy/i, /made\s+up/i
+  ],
+};
 
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.get('auth') === 'ok') {
@@ -777,7 +805,18 @@ function handleUpdate(msg) {
             hateCount: m.hate_score > 0.3 ? 1 : 0,
             firstSeen: Date.now(),
             lastSeen:  Date.now(),
+            recentTexts: [],
+            categoryHits: {},
+            suggestedReason: 'spam',
           });
+        }
+        const liveUser = liveUsers.get(m.display_name);
+        if (liveUser) {
+          liveUser.recentTexts.push(m.text || '');
+          if (liveUser.recentTexts.length > 20) liveUser.recentTexts.shift();
+          const inf = inferReasonFromTexts(liveUser.recentTexts);
+          liveUser.suggestedReason = inf.reason;
+          liveUser.categoryHits = inf.hits;
         }
       }
     }
@@ -1124,9 +1163,6 @@ function renderUsers() {
   if (aCount) aCount.textContent = activeCount;
 
   const sorted = [...liveUsers.values()].sort((a,b) => b.lastSeen - a.lastSeen);
-  const reasonOpts = REPORT_REASONS.map(r =>
-    `<option value="${r.id}">${r.label}</option>`).join('');
-
   el.innerHTML = sorted.map(u => {
     const name = u.displayName;
     const state = userReports.get(name);
@@ -1134,6 +1170,11 @@ function renderUsers() {
     const hateRatio = u.msgCount > 0 ? (u.hateCount / u.msgCount) : 0;
     const dangerColor = hateRatio > 0.5 ? 'var(--accent)' : hateRatio > 0.2 ? 'var(--orange)' : 'var(--muted)';
     const safeId = encodeURIComponent(name).replace(/%/g,'_');
+    const suggested = u.suggestedReason || 'spam';
+    const suggestedLabel = REPORT_REASONS.find(r => r.id === suggested)?.label || suggested;
+    const topHitCount = (u.categoryHits && u.categoryHits[suggested]) ? u.categoryHits[suggested] : 0;
+    const reasonOpts = REPORT_REASONS.map(r =>
+      `<option value="${r.id}" ${r.id === suggested ? 'selected' : ''}>${r.label}</option>`).join('');
     return `
     <div class="user-row ${isActive ? 'reporting' : ''}" id="urow-${safeId}">
       <div class="user-info">
@@ -1142,67 +1183,82 @@ function renderUsers() {
           <span>${u.msgCount} mesaj</span>
           ${u.hateCount > 0 ? `<span style="color:${dangerColor}"> · ⚠️ ${u.hateCount} nefret</span>` : ''}
         </div>
-        ${isActive ? `<div class="report-fire">⚡ ${state.count} RAPOR GÖNDERİLDİ</div>` : ''}
+        <div class="user-meta" style="margin-top:4px;">
+          <span>🤖 Öneri: <b style="color:var(--yellow)">${esc(suggestedLabel)}</b>${topHitCount ? ` (${topHitCount} eşleşme)` : ''}</span>
+        </div>
+        ${isActive ? `<div class="report-fire">✅ ${state.count} KEZ RAPORLANDI (tek-sefer)</div>` : ''}
       </div>
       <div class="user-actions">
         <select class="reason-select" id="reason-${safeId}" ${isActive ? 'disabled' : ''}>
           ${reasonOpts}
         </select>
         ${isActive
-          ? `<button class="btn btn-sm btn-rstop" onclick="stopUserReport(${JSON.stringify(name)})">■ Durdur</button>`
-          : `<button class="btn btn-sm btn-rstart" onclick="startUserReport(${JSON.stringify(name)})">🚨 Başlat</button>`
+          ? `<button class="btn btn-sm btn-rstop" onclick="stopUserReport(${JSON.stringify(name)})">■ Sıfırla</button>`
+          : `<button class="btn btn-sm btn-rstart" onclick="startUserReport(${JSON.stringify(name)})">🚨 Tek Rapor</button>`
         }
       </div>
     </div>`;
   }).join('');
 }
 
-function startUserReport(name) {
+function inferReasonFromTexts(texts) {
+  const hits = {};
+  for (const reason of Object.keys(NLP_REASON_PATTERNS)) hits[reason] = 0;
+  for (const text of texts) {
+    for (const [reason, patterns] of Object.entries(NLP_REASON_PATTERNS)) {
+      for (const pattern of patterns) {
+        if (pattern.test(text || '')) hits[reason]++;
+      }
+    }
+  }
+  let bestReason = 'spam';
+  let bestScore = -1;
+  for (const [reason, score] of Object.entries(hits)) {
+    if (score > bestScore) {
+      bestReason = reason;
+      bestScore = score;
+    }
+  }
+  return { reason: bestReason, hits };
+}
+
+async function startUserReport(name) {
   if (userReports.has(name)) return;
   const safeId = encodeURIComponent(name).replace(/%/g,'_');
   const reasonEl = document.getElementById('reason-' + safeId);
-  const reason = reasonEl ? reasonEl.value : 'spam';
+  const user = liveUsers.get(name);
+  const suggested = user?.suggestedReason || 'spam';
+  const reason = reasonEl ? reasonEl.value : suggested;
   const reasonLabel = REPORT_REASONS.find(r => r.id === reason)?.label || reason;
 
-  const state = { count: 0, reason, interval: null };
+  const state = { count: 0, reason, lastAt: Date.now() };
   userReports.set(name, state);
 
-  state.interval = setInterval(async () => {
-    state.count++;
-    try {
-      await fetch('/api/report_user_simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name: name, reason, session_id: sessionId })
-      });
-    } catch(_) {}
-    // Inline counter update (fast path — no full re-render)
-    const safeId2 = encodeURIComponent(name).replace(/%/g,'_');
-    const row = document.getElementById('urow-' + safeId2);
-    if (row) {
-      const fire = row.querySelector('.report-fire');
-      if (fire) fire.textContent = `⚡ ${state.count} RAPOR GÖNDERİLDİ`;
-    }
-  }, 500); // 2 kez/saniye
+  state.count++;
+  try {
+    await fetch('/api/report_user_simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: name, reason, session_id: sessionId })
+    });
+  } catch(_) {}
 
   renderUsers();
-  addLog('USER-REPORT', `Başlatıldı → @${name} | Neden: ${reasonLabel}`, true);
-  showAlert('🚨 Raporlama Başladı', `@${name} için saniyede 2 rapor gönderiliyor`);
+  addLog('USER-REPORT', `Gönderildi → @${name} | Neden: ${reasonLabel}`, true);
+  showAlert('🚨 Rapor Gönderildi', `@${name} için tek-sefer rapor simüle edildi`);
 }
 
 function stopUserReport(name) {
   const state = userReports.get(name);
   if (!state) return;
-  clearInterval(state.interval);
   userReports.delete(name);
-  addLog('USER-REPORT', `Durduruldu → @${name} | Toplam: ${state.count} rapor`, false);
+  addLog('USER-REPORT', `Sıfırlandı → @${name} | Toplam: ${state.count} rapor`, false);
   renderUsers();
 }
 
 function stopAllReports() {
   for (const [name, state] of userReports.entries()) {
-    clearInterval(state.interval);
-    addLog('USER-REPORT', `Durduruldu → @${name} | Toplam: ${state.count} rapor`, false);
+    addLog('USER-REPORT', `Sıfırlandı → @${name} | Toplam: ${state.count} rapor`, false);
   }
   userReports.clear();
   renderUsers();
