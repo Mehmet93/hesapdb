@@ -1079,8 +1079,10 @@ async function massReport() {
     for (const res of d.results) {
       total += res.accounts_reported;
       addLog('REPORT', `${res.cluster_id} → ${res.accounts_reported} hesap raporlandı, ${res.messages_deleted} mesaj silindi`, false);
+      addLog('YT-REPORT', `${res.cluster_id} → ${ytReportInfo(res.youtube_report)}`, !res.report_sent);
     }
-    showAlert('✅ Raporlandı', `${d.results.length} küme · ${total} hesap YouTube'a bildirildi`);
+    const okCount = d.results.filter(x => x.report_sent).length;
+    showAlert('✅ Raporlandı', `${d.results.length} küme · ${total} hesap işlendi · YouTube onay: ${okCount}/${d.results.length}`);
     selectedClusters.clear(); await refreshClusters();
   } catch(e) { showAlert('Hata', e.message); }
   setLoading(false);
@@ -1105,7 +1107,9 @@ async function quickReport(cid) {
       body: JSON.stringify({cluster_ids:[cid], session_id:sessionId, auto_delete:false})});
     const d = await r.json();
     addLog('REPORT', `${cid} → ${d.results[0]?.accounts_reported} hesap`, false);
-    showAlert('✅ Raporlandı', `${cid} YouTube'a bildirildi`);
+    addLog('YT-REPORT', `${cid} → ${ytReportInfo(d.results[0]?.youtube_report)}`, !(d.results[0]?.report_sent));
+    const okTxt = d.results[0]?.report_sent ? 'YouTube tarafından onaylandı' : 'YouTube onayı alınamadı';
+    showAlert('✅ Raporlandı', `${cid} bildirimi gönderildi · ${okTxt}`);
     await refreshClusters();
   } catch(e) { showAlert('Hata', e.message); }
   setLoading(false);
@@ -1141,6 +1145,15 @@ function addLog(event, val, isAlert) {
   d.innerHTML = `<span class="ts">[${ts}]</span> <span class="evt">${event}</span> <span class="val">${esc(val)}</span>`;
   c.appendChild(d);
   c.scrollTop = c.scrollHeight;
+}
+
+function ytReportInfo(meta) {
+  if (!meta) return 'YouTube yanıt bilgisi yok';
+  if (!meta.attempted) return `YouTube çağrısı yapılmadı (${meta.error || 'neden belirtilmedi'})`;
+  const status = meta.status_code ?? 'n/a';
+  const okTxt = meta.report_sent ? 'ONAYLANDI' : 'BAŞARISIZ';
+  const excerpt = meta.response_excerpt ? ` | yanıt: ${String(meta.response_excerpt).substring(0,100)}` : '';
+  return `YouTube reportAbuse ${okTxt} | HTTP ${status}${excerpt}`;
 }
 
 // ── USER PANEL ─────────────────────────────────────────────────────────────────
@@ -1672,6 +1685,66 @@ async def report_abuse(video_id: str, access_token: str, reason_id: str = "hateS
         return r.status_code in (200, 204)
 
 
+async def report_abuse_detailed(
+    video_id: str,
+    access_token: Optional[str],
+    *,
+    reason_id: str = "hateSpeech",
+    secondary_reason_id: str = "",
+    comments: str = "Automated moderation report request.",
+    language: str = "en",
+) -> dict:
+    if not access_token:
+        return {
+            "attempted": False,
+            "report_sent": False,
+            "status_code": None,
+            "response_excerpt": "No access token",
+            "error": "missing_access_token",
+        }
+    if not video_id:
+        return {
+            "attempted": False,
+            "report_sent": False,
+            "status_code": None,
+            "response_excerpt": "No active video",
+            "error": "missing_video_id",
+        }
+
+    payload = {
+        "videoId": video_id,
+        "reasonId": reason_id,
+        "secondaryReasonId": secondary_reason_id,
+        "comments": comments,
+        "language": language,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                "https://www.googleapis.com/youtube/v3/videos/reportAbuse",
+                params={"videoId": video_id},
+                json=payload,
+                headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            )
+        raw = (r.text or "").strip().replace("\n", " ")
+        excerpt = raw[:180] if raw else "empty-response-body"
+        return {
+            "attempted": True,
+            "report_sent": r.status_code in (200, 204),
+            "status_code": r.status_code,
+            "response_excerpt": excerpt,
+            "error": None if r.status_code in (200, 204) else "youtube_non_success_status",
+        }
+    except Exception as e:
+        return {
+            "attempted": True,
+            "report_sent": False,
+            "status_code": None,
+            "response_excerpt": "",
+            "error": str(e),
+        }
+
+
 async def delete_message(msg_id: str, access_token: str) -> bool:
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.delete(
@@ -1889,12 +1962,12 @@ async def mass_report(req: Request):
         c = STATE.clusters.get(cid)
         if not c:
             continue
-        reported_ok = False
-        if STATE.video_id:
-            try:
-                reported_ok = await report_abuse(STATE.video_id, access_token)
-            except Exception as e:
-                print(f"[REPORT] {e}")
+        report_meta = await report_abuse_detailed(
+            STATE.video_id or "",
+            access_token,
+            comments="Cluster-level moderation report from SwarmMod.",
+            language="en",
+        )
         deleted = 0
         if auto_delete:
             for msg_info in c.messages[-50:]:
@@ -1907,7 +1980,8 @@ async def mass_report(req: Request):
         STATE.total_reported += len(c.accounts)
         results.append({
             "cluster_id": cid, "accounts_reported": len(c.accounts),
-            "messages_deleted": deleted, "report_sent": reported_ok,
+            "messages_deleted": deleted, "report_sent": report_meta["report_sent"],
+            "youtube_report": report_meta,
         })
     await broadcast_update()
     return {"ok": True, "results": results}
@@ -1954,30 +2028,28 @@ async def report_user_simulate(req: Request):
     reason_id, secondary_id = REASON_MAP.get(reason, ("S", "30"))
 
     access_token = STATE.oauth_tokens.get(session_id, {}).get("access_token")
-    report_sent = False
-    if access_token and STATE.video_id:
-        try:
-            async with httpx.AsyncClient() as client:
-                r = await client.post(
-                    "https://www.googleapis.com/youtube/v3/videos/reportAbuse",
-                    params={"videoId": STATE.video_id},
-                    headers={"Authorization": f"Bearer {access_token}"},
-                    json={
-                        "videoId":         STATE.video_id,
-                        "reasonId":        reason_id,
-                        "secondaryReasonId": secondary_id,
-                        "comments":        f"Reported user: {display_name}",
-                        "language":        "tr",
-                    },
-                    timeout=5.0,
-                )
-            report_sent = r.status_code in (200, 204)
-        except Exception as e:
-            print(f"[USER-REPORT] {e}")
+    report_meta = await report_abuse_detailed(
+        STATE.video_id or "",
+        access_token,
+        reason_id=reason_id,
+        secondary_reason_id=secondary_id,
+        comments=f"Reported user: {display_name}",
+        language="tr",
+    )
 
     STATE.total_reported += 1
-    print(f"[USER-REPORT] {'REAL' if report_sent else 'SIM'} | user={display_name} reason={reason}")
-    return {"ok": True, "display_name": display_name, "reason": reason, "report_sent": report_sent, "simulated": not report_sent}
+    print(
+        f"[USER-REPORT] {'REAL' if report_meta['report_sent'] else 'SIM'} "
+        f"| user={display_name} reason={reason} status={report_meta.get('status_code')}"
+    )
+    return {
+        "ok": True,
+        "display_name": display_name,
+        "reason": reason,
+        "report_sent": report_meta["report_sent"],
+        "simulated": not report_meta["report_sent"],
+        "youtube_report": report_meta,
+    }
 
 
 @app.post("/api/inject_test")
