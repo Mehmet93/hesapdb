@@ -1248,24 +1248,17 @@ async function startUserReport(name) {
   userReports.set(name, state);
 
   state.count++;
-  let payload = null;
   try {
-    const res = await fetch('/api/report_user_simulate', {
+    await fetch('/api/report_user_simulate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ display_name: name, reason, session_id: sessionId })
     });
-    payload = await res.json();
-    addLog('YT-REPORT', `@${name} → ${ytReportInfo(payload.youtube_report)}`, !payload.report_sent);
   } catch(_) {}
 
   renderUsers();
   addLog('USER-REPORT', `Gönderildi → @${name} | Neden: ${reasonLabel}`, true);
-  if (payload?.report_sent) {
-    showAlert('🚨 Rapor Gönderildi', `@${name} için YouTube bildirimi onaylandı (HTTP ${payload.youtube_report?.status_code ?? 'n/a'})`);
-  } else {
-    showAlert('⚠️ Rapor Durumu', `@${name} için YouTube onayı alınamadı; Log sekmesinde detay mevcut`);
-  }
+  showAlert('🚨 Rapor Gönderildi', `@${name} için tek-sefer rapor simüle edildi`);
 }
 
 function stopUserReport(name) {
